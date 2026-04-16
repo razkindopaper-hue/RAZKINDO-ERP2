@@ -19,21 +19,17 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  webpack: (config, { dev, isServer }) => {
-    if (dev) {
-      // Disable source maps in dev to save memory
-      config.devtool = false;
-      // Limit parallel compilation
-      config.parallelism = 1;
-    }
+  // Empty turbopack config to acknowledge we're using it
+  turbopack: {},
 
+  // Webpack config only used when building with --webpack flag
+  webpack: (config, { isServer }) => {
     if (isServer) {
       if (!config.externals) config.externals = [];
       if (Array.isArray(config.externals)) {
         config.externals.push('sharp', 'pg-native');
       }
     }
-
     return config;
   },
 
