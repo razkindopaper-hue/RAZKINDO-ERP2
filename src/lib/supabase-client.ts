@@ -33,7 +33,7 @@ export const supabase: SupabaseClient = createClient(
   supabaseAnonKey || 'placeholder-key',
   {
     auth: {
-      autoRefreshToken: true,
+      autoRefreshToken: !!supabaseUrl && !!supabaseAnonKey,
       persistSession: !!supabaseUrl && !!supabaseAnonKey,
       detectSessionInUrl: !!supabaseUrl && !!supabaseAnonKey,
     },

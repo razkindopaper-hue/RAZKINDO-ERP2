@@ -18,29 +18,17 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // ─────────────────────────────────────────────────────────────────────
-// CONFIGURATION — BUG FIX #6: Removed hardcoded credentials, fail loudly if env missing
+// CONFIGURATION — Read from env, gracefully handle missing keys
 // ─────────────────────────────────────────────────────────────────────
 
 /** Supabase project URL — from env only (no hardcoded fallback) */
-export const SUPABASE_URL: string = (() => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is required in .env');
-  return url;
-})();
+export const SUPABASE_URL: string = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 
-/** Supabase anon (publishable) key — from env only (no hardcoded fallback) */
-export const SUPABASE_ANON_KEY: string = (() => {
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!key) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is required in .env');
-  return key;
-})();
+/** Supabase anon (publishable) key — from env, fallback to placeholder */
+export const SUPABASE_ANON_KEY: string = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
 /** Supabase service role key — bypasses all RLS policies, server-side only */
-export const SUPABASE_SERVICE_KEY: string = (() => {
-  const key = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) throw new Error('NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY is required in .env');
-  return key;
-})();
+export const SUPABASE_SERVICE_KEY: string = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 
 // ─────────────────────────────────────────────────────────────────────
 // CLIENT SINGLETON
@@ -50,18 +38,14 @@ const globalForSupabase = globalThis as unknown as {
   supabaseRestClient: SupabaseClient | undefined;
 };
 
+const hasValidConfig = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
 /**
  * Real Supabase client connected to the remote project.
  * Uses the singleton pattern to prevent multiple instances in dev mode.
  *
- * This client supports the full Supabase API:
- *   - .from('table').select('*').eq('col', 'val').order('col').limit(10)
- *   - .from('table').insert(data).select()
- *   - .from('table').update(data).eq('id', id).select()
- *   - .from('table').delete().eq('id', id)
- *   - .rpc('function_name', { params })
- *   - .auth.getUser()
- *   - .storage.from('bucket').upload(...)
+ * If env vars are missing, creates a placeholder client that won't crash
+ * but will return errors on API calls. The app falls back to Prisma.
  */
 export const supabaseRestClient: SupabaseClient =
   globalForSupabase.supabaseRestClient ||
@@ -79,4 +63,11 @@ export const supabaseRestClient: SupabaseClient =
 // Persist singleton in development to survive HMR
 if (process.env.NODE_ENV !== 'production') {
   globalForSupabase.supabaseRestClient = supabaseRestClient;
+}
+
+if (!hasValidConfig) {
+  console.warn(
+    '[Supabase REST] Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. ' +
+    'REST API features will be unavailable. Prisma-based operations will continue normally.'
+  );
 }
