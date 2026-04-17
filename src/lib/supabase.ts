@@ -631,16 +631,24 @@ const rpcHandlers: Record<string, RpcFunction> = {
 
   async get_payment_pool_sums(_params) {
     try {
-      // CRITICAL FIX: Query actual payments table for ground truth,
-      // NOT the settings table (which would be self-referencing).
-      // This provides the actualHppSum/actualProfitSum comparison values.
+      // =====================================================================
+      // GROUND TRUTH CALCULATION for pool balances.
       //
-      // POOL BALANCE FIX: Only count payments that went to brankas/bank
-      // (have cashBoxId or bankAccountId set). Payments from courier cash
-      // collection (no cashBoxId/bankAccountId) should NOT be counted here
-      // because those are tracked separately in courier_cash.hppPending/profitPending
-      // and will be added to the pool when the courier deposits (setor ke brankas).
-      const result = await prisma.payment.aggregate({
+      // Pool inflows come from TWO sources:
+      //   1. Direct sale payments to brankas/bank (payments with cashBoxId/bankAccountId)
+      //   2. Courier handovers (setor ke brankas) — money collected by couriers
+      //      then deposited to brankas. These update pool via atomicUpdatePoolBalance
+      //      but are NOT recorded in the payments table with cashBoxId/bankAccountId.
+      //
+      // Pool outflows come from finance_requests processed as "pay_now" (not debt):
+      //   - Purchases, expenses, salaries paid from hpp_paid or profit_unpaid pools
+      //
+      // Previous implementation only counted source #1, causing sync to zero out
+      // balances when most payments go through couriers first.
+      // =====================================================================
+
+      // Inflow #1: Direct payments to brankas/bank
+      const directPayments = await prisma.payment.aggregate({
         _sum: {
           hppPortion: true,
           profitPortion: true,
@@ -649,7 +657,6 @@ const rpcHandlers: Record<string, RpcFunction> = {
           transaction: {
             type: 'sale',
           },
-          // Only count payments deposited to brankas/bank
           OR: [
             { cashBoxId: { not: null } },
             { bankAccountId: { not: null } },
@@ -657,14 +664,72 @@ const rpcHandlers: Record<string, RpcFunction> = {
         },
       });
 
-      const hppPaidTotal = result._sum.hppPortion || 0;
-      const profitPaidTotal = result._sum.profitPortion || 0;
+      // Inflow #2: Courier handovers (setor ke brankas)
+      // These have hpp_portion and profit_portion tracked in courier_handovers table
+      const handovers = await prisma.courierHandover.aggregate({
+        _sum: {
+          hppPortion: true,
+          profitPortion: true,
+          amount: true,
+        },
+        where: {
+          status: 'processed',
+        },
+      });
+
+      // Outflow: Finance requests that deducted from pool balances
+      // These are processed requests paid from hpp_paid or profit_unpaid pools (not debt)
+      const hppDeductions = await prisma.financeRequest.aggregate({
+        _sum: {
+          amount: true,
+        },
+        where: {
+          status: 'processed',
+          fundSource: 'hpp_paid',
+          paymentType: 'pay_now',
+        },
+      });
+
+      const profitDeductions = await prisma.financeRequest.aggregate({
+        _sum: {
+          amount: true,
+        },
+        where: {
+          status: 'processed',
+          fundSource: 'profit_unpaid',
+          paymentType: 'pay_now',
+        },
+      });
+
+      // Also deduct salary payments from pools
+      // Salaries use finance_requests with type='salary' and fundSource
+      // They are already included in the financeRequest aggregate above
+
+      const directHpp = directPayments._sum.hppPortion || 0;
+      const directProfit = directPayments._sum.profitPortion || 0;
+      const handoverHpp = handovers._sum.hppPortion || 0;
+      const handoverProfit = handovers._sum.profitPortion || 0;
+      const handoverTotal = handovers._sum.amount || 0;
+      const hppDeducted = hppDeductions._sum.amount || 0;
+      const profitDeducted = profitDeductions._sum.amount || 0;
+
+      // Net pool balance = inflows - outflows
+      const hppPaidTotal = Math.round(directHpp + handoverHpp - hppDeducted);
+      const profitPaidTotal = Math.round(directProfit + handoverProfit - profitDeducted);
 
       return {
         data: {
           hppPaidTotal,
           profitPaidTotal,
           totalPaid: hppPaidTotal + profitPaidTotal,
+          // Breakdown for debugging/transparency
+          directHpp,
+          directProfit,
+          handoverHpp,
+          handoverProfit,
+          handoverTotal,
+          hppDeducted,
+          profitDeducted,
         },
         error: null,
       };

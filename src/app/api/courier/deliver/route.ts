@@ -156,32 +156,52 @@ export async function PATCH(request: NextRequest) {
     // Also track hpp/profit portions so that when courier deposits (setor ke brankas),
     // the pool balances can be correctly updated at that time.
     const cashUnitId = courier.unit_id || transaction.unit_id;
-    if (paymentMethod === 'cash' && amount && amount > 0 && cashUnitId) {
-      const hppPortionForCash = transaction.total > 0 ? (transaction.total_hpp / transaction.total) * amount : 0;
-      const profitPortionForCash = transaction.total > 0 ? (transaction.total_profit / transaction.total) * amount : 0;
+    let courierCashUpdate: { success: boolean; amount: number; hppPortion: number; profitPortion: number; newBalance: number; error?: string; warning?: string } | null = null;
 
-      let ccSuccess = false;
-      let ccNewBalance = 0;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        const { data: newBalance, error: ccError } = await db.rpc('atomic_add_courier_cash', {
-          p_courier_id: courierId,
-          p_unit_id: cashUnitId,
-          p_amount: amount,
-          p_hpp_delta: hppPortionForCash,
-          p_profit_delta: profitPortionForCash,
-        });
-        if (!ccError) {
-          ccNewBalance = Number(newBalance) || 0;
-          ccSuccess = true;
-          break;
+    if (paymentMethod === 'cash' && amount && amount > 0) {
+      if (!cashUnitId) {
+        // CRITICAL: courier has no unit_id and transaction has no unit_id — cannot update courier cash
+        const warnMsg = `Dana kurir TIDAK ter-update: kurir (id: ${courierId}) dan transaksi (id: ${transactionId}) tidak memiliki unit_id. Hubungi admin untuk set unit_id kurir.`;
+        console.error(`[COURIER DELIVER] ${warnMsg}`);
+        courierCashUpdate = { success: false, amount, hppPortion: 0, profitPortion: 0, newBalance: 0, warning: warnMsg };
+        createLog(db, { type: 'error', userId: courierId, action: 'courier_cash_missing_unit', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ amount, courierId, transactionId }), message: warnMsg });
+      } else {
+        const hppPortionForCash = transaction.total > 0 ? (transaction.total_hpp / transaction.total) * amount : 0;
+        const profitPortionForCash = transaction.total > 0 ? (transaction.total_profit / transaction.total) * amount : 0;
+
+        let ccSuccess = false;
+        let ccNewBalance = 0;
+        let ccLastError = '';
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const { data: newBalance, error: ccError } = await db.rpc('atomic_add_courier_cash', {
+            p_courier_id: courierId,
+            p_unit_id: cashUnitId,
+            p_amount: amount,
+            p_hpp_delta: hppPortionForCash,
+            p_profit_delta: profitPortionForCash,
+          });
+          if (!ccError) {
+            ccNewBalance = Number(newBalance) || 0;
+            ccSuccess = true;
+            break;
+          }
+          ccLastError = ccError.message;
+          console.error(`[COURIER DELIVER] Courier cash credit attempt ${attempt}/3 failed:`, ccError.message);
+          if (attempt < 3) await new Promise(r => setTimeout(r, 500 * attempt)); // backoff
         }
-        console.error(`[COURIER DELIVER] Courier cash credit attempt ${attempt}/3 failed:`, ccError.message);
-        if (attempt < 3) await new Promise(r => setTimeout(r, 500 * attempt)); // backoff
+        if (!ccSuccess) {
+          console.error('[COURIER DELIVER] CRITICAL: All 3 attempts to credit courier cash failed — courier will NOT see this cash in their balance');
+        }
+        courierCashUpdate = {
+          success: ccSuccess,
+          amount,
+          hppPortion: hppPortionForCash,
+          profitPortion: profitPortionForCash,
+          newBalance: ccNewBalance,
+          error: ccSuccess ? undefined : `Gagal update dana kurir setelah 3x percobaan: ${ccLastError}`,
+        };
+        createLog(db, { type: 'activity', userId: courierId, action: 'courier_cash_collected', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ amount, hppPortion: hppPortionForCash, profitPortion: profitPortionForCash, invoiceNo: transaction.invoice_no, newBalance: ccNewBalance, success: ccSuccess }), message: `Kurir ${courier.name} mengumpulkan ${formatCurrency(amount)} dari ${transaction.invoice_no} (HPP: ${formatCurrency(hppPortionForCash)}, Profit: ${formatCurrency(profitPortionForCash)})${ccSuccess ? '' : ' [GAGAL kredit saldo]'}` });
       }
-      if (!ccSuccess) {
-        console.error('[COURIER DELIVER] CRITICAL: All 3 attempts to credit courier cash failed — courier will NOT see this cash in their balance');
-      }
-      createLog(db, { type: 'activity', userId: courierId, action: 'courier_cash_collected', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ amount, hppPortion: hppPortionForCash, profitPortion: profitPortionForCash, invoiceNo: transaction.invoice_no, newBalance: ccNewBalance, success: ccSuccess }), message: `Kurir ${courier.name} mengumpulkan ${formatCurrency(amount)} dari ${transaction.invoice_no} (HPP: ${formatCurrency(hppPortionForCash)}, Profit: ${formatCurrency(profitPortionForCash)})${ccSuccess ? '' : ' [GAGAL kredit saldo]'}` });
     }
 
     createLog(db, { type: 'activity', userId: courierId, action: 'delivery_completed', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ invoiceNo: transaction.invoice_no, customerName: (transaction.customer as any)?.name, paymentMethod, amount, commission }), message: `Pengiriman ${transaction.invoice_no} selesai oleh ${courier.name}` });
@@ -189,7 +209,12 @@ export async function PATCH(request: NextRequest) {
 
     wsDeliveryUpdate({ transactionId, courierId, status: 'delivered' });
 
-    return NextResponse.json({ transaction: toCamelCase({ ...transaction, ...updateData }), payment: paymentRecord ? toCamelCase(paymentRecord) : null, commission });
+    return NextResponse.json({
+      transaction: toCamelCase({ ...transaction, ...updateData }),
+      payment: paymentRecord ? toCamelCase(paymentRecord) : null,
+      commission,
+      courierCashUpdate,
+    });
   } catch (error) {
     console.error('Courier deliver error:', error);
     const message = error instanceof Error ? error.message : '';

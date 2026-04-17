@@ -471,13 +471,18 @@ export function PendingDeliveryCard({ transaction, courier, queryClient }: { tra
         body.paymentMethod = isCash ? 'cash' : 'piutang';
         body.amount = amount;
       }
-      return apiFetch<{ commission?: number }>('/api/courier/deliver', {
+      return apiFetch<{ commission?: number; courierCashUpdate?: { success: boolean; amount: number; newBalance: number; error?: string; warning?: string } }>('/api/courier/deliver', {
         method: 'PATCH',
         body: JSON.stringify(body)
       });
     },
     onSuccess: (result) => {
       toast.success(`Pengiriman ${transaction.invoiceNo} selesai! + Komisi ${formatCurrency(result.commission || commission)}`);
+      // Show warning if courier cash was not updated
+      if (result.courierCashUpdate && !result.courierCashUpdate.success) {
+        const errOrWarn = result.courierCashUpdate.warning || result.courierCashUpdate.error;
+        toast.error(`⚠️ Dana kurir tidak ter-update: ${errOrWarn}`, { duration: 8000, id: 'courier-cash-warn' });
+      }
       setDeliverOpen(false);
       setPaymentMethod(null);
       setPaymentAmount('');

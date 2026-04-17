@@ -77,14 +77,21 @@ export async function GET(request: NextRequest) {
     const profitPaidBalance = getVal('pool_profit_paid_balance');
     const investorFund = getVal('pool_investor_fund');
 
-    // Get actual payment sums from DB (ground truth) via Prisma RPC
-    // Only counts payments deposited to brankas/bank (not courier cash)
+    // Get actual pool sums from DB (ground truth) via Prisma RPC
+    // Now includes: direct payments + courier handovers - pool deductions
     const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
     let actualHppSum = sumsData?.hppPaidTotal || 0;
     let actualProfitSum = sumsData?.profitPaidTotal || 0;
+    // Breakdown data for transparency
+    const directHpp = sumsData?.directHpp || 0;
+    const directProfit = sumsData?.directProfit || 0;
+    const handoverHpp = sumsData?.handoverHpp || 0;
+    const handoverProfit = sumsData?.handoverProfit || 0;
+    const hppDeducted = sumsData?.hppDeducted || 0;
+    const profitDeducted = sumsData?.profitDeducted || 0;
     if (sumsError) {
       console.error('[POOL] RPC get_payment_pool_sums failed, falling back to direct query:', sumsError.message);
-      // Fallback: only sum payments deposited to brankas/bank
+      // Fallback: only sum payments deposited to brankas/bank (incomplete but safe)
       const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
       actualHppSum = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
       actualProfitSum = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
@@ -106,6 +113,13 @@ export async function GET(request: NextRequest) {
       actualHppSum,
       actualProfitSum,
       actualTotal: actualHppSum + actualProfitSum,
+      // Breakdown: where does the ground truth come from?
+      directHpp,
+      directProfit,
+      handoverHpp,
+      handoverProfit,
+      hppDeducted,
+      profitDeducted,
       // HPP/profit still held by couriers (not yet in brankas)
       courierHppPending: courierSums?.hppPending || 0,
       courierProfitPending: courierSums?.profitPending || 0,
@@ -268,10 +282,16 @@ async function computeSyncPreview() {
   const currentProfit = getCurrentVal('pool_profit_paid_balance');
   const currentInvestorFund = getCurrentVal('pool_investor_fund');
 
-  // Get actual payment sums from DB (ground truth) — only brankas/bank payments
+  // Get actual pool sums from DB (ground truth) — now includes handovers + deductions
   const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
   let newHpp = sumsData?.hppPaidTotal || 0;
   let newProfit = sumsData?.profitPaidTotal || 0;
+  const directHpp = sumsData?.directHpp || 0;
+  const directProfit = sumsData?.directProfit || 0;
+  const handoverHpp = sumsData?.handoverHpp || 0;
+  const handoverProfit = sumsData?.handoverProfit || 0;
+  const hppDeducted = sumsData?.hppDeducted || 0;
+  const profitDeducted = sumsData?.profitDeducted || 0;
   if (sumsError) {
     console.error('[POOL SYNC PREVIEW] RPC failed, falling back to direct query:', sumsError.message);
     const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
@@ -290,23 +310,15 @@ async function computeSyncPreview() {
     profitPending: acc.profitPending + (cc.profit_pending || 0),
   }), { balance: 0, hppPending: 0, profitPending: 0 });
 
-  // Get total payments count for context
-  const { count: totalPaymentsCount } = await db
-    .from('payments')
-    .select('*', { count: 'exact', head: true });
-
-  const { count: brankasBankPaymentsCount } = await db
-    .from('payments')
-    .select('*', { count: 'exact', head: true })
-    .or('cash_box_id.not.is.null,bank_account_id.not.is.null');
-
   // Compute changes
   const changes: { field: string; from: number; to: number; delta: number }[] = [];
-  if (currentHpp !== roundedNewHpp) {
-    changes.push({ field: 'HPP Terbayar', from: currentHpp, to: roundedNewHpp, delta: roundedNewHpp - currentHpp });
+  const hppDelta = roundedNewHpp - currentHpp;
+  const profitDelta = roundedNewProfit - currentProfit;
+  if (hppDelta !== 0) {
+    changes.push({ field: 'HPP Terbayar', from: currentHpp, to: roundedNewHpp, delta: hppDelta });
   }
-  if (currentProfit !== roundedNewProfit) {
-    changes.push({ field: 'Profit Terbayar', from: currentProfit, to: roundedNewProfit, delta: roundedNewProfit - currentProfit });
+  if (profitDelta !== 0) {
+    changes.push({ field: 'Profit Terbayar', from: currentProfit, to: roundedNewProfit, delta: profitDelta });
   }
 
   // Generate warnings
@@ -315,26 +327,22 @@ async function computeSyncPreview() {
   const newTotal = roundedNewHpp + roundedNewProfit + currentInvestorFund;
 
   if (roundedNewHpp === 0 && roundedNewProfit === 0 && currentTotal > 0) {
-    warnings.push('⚠️ Hasil sync akan membuat HPP dan Profit keduanya menjadi 0. Ini biasanya berarti belum ada pembayaran yang masuk ke brankas/bank.');
+    warnings.push('⚠️ Hasil sync akan membuat HPP dan Profit keduanya menjadi 0. Ini biasanya berarti belum ada pembayaran yang masuk ke brankas/bank maupun setoran kurir.');
   }
 
   if (courierSums.hppPending > 0 || courierSums.profitPending > 0) {
-    warnings.push(`📦 Masih ada dana di kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini TIDAK termasuk dalam hasil sync.`);
+    warnings.push(`📦 Masih ada dana di kurir yang belum disetor: HPP ${courierSums.hppPending.toLocaleString('id-ID')}, Profit ${courierSums.profitPending.toLocaleString('id-ID')}. Dana ini TIDAK termasuk dalam pool (akan masuk saat kurir setor ke brankas).`);
   }
 
-  if (Math.abs(currentHpp - roundedNewHpp) > currentHpp * 0.5 && currentHpp > 0) {
-    warnings.push(`📉 Perubahan HPP sangat besar: dari ${currentHpp.toLocaleString('id-ID')} menjadi ${roundedNewHpp.toLocaleString('id-ID')} (${((roundedNewHpp - currentHpp) / currentHpp * 100).toFixed(1)}%). Pastikan data pembayaran sudah benar.`);
+  if (Math.abs(hppDelta) > currentHpp * 0.5 && currentHpp > 0) {
+    warnings.push(`📉 Perubahan HPP sangat besar: dari ${currentHpp.toLocaleString('id-ID')} menjadi ${roundedNewHpp.toLocaleString('id-ID')} (selisih ${hppDelta > 0 ? '+' : ''}${hppDelta.toLocaleString('id-ID')}). Pastikan data pembayaran dan setoran kurir sudah benar.`);
   }
 
-  if (Math.abs(currentProfit - roundedNewProfit) > currentProfit * 0.5 && currentProfit > 0) {
-    warnings.push(`📉 Perubahan Profit sangat besar: dari ${currentProfit.toLocaleString('id-ID')} menjadi ${roundedNewProfit.toLocaleString('id-ID')} (${((roundedNewProfit - currentProfit) / currentProfit * 100).toFixed(1)}%). Pastikan data pembayaran sudah benar.`);
+  if (Math.abs(profitDelta) > currentProfit * 0.5 && currentProfit > 0) {
+    warnings.push(`📉 Perubahan Profit sangat besar: dari ${currentProfit.toLocaleString('id-ID')} menjadi ${roundedNewProfit.toLocaleString('id-ID')} (selisih ${profitDelta > 0 ? '+' : ''}${profitDelta.toLocaleString('id-ID')}). Pastikan data pembayaran dan setoran kurir sudah benar.`);
   }
 
-  if (totalPaymentsCount && brankasBankPaymentsCount !== null && totalPaymentsCount > 0 && brankasBankPaymentsCount === 0) {
-    warnings.push('🚨 Tidak ada pembayaran yang tercatat masuk ke brankas/bank. Semua pembayaran mungkin masih dipegang kurir atau belum di-deposit.');
-  }
-
-  // The "correct" total should include courier pending amounts
+  // The "correct" total should include courier pending amounts (full expected income)
   const totalWithCourier = roundedNewHpp + roundedNewProfit + courierSums.hppPending + courierSums.profitPending + currentInvestorFund;
 
   return {
@@ -345,12 +353,20 @@ async function computeSyncPreview() {
     newHpp: roundedNewHpp,
     newProfit: roundedNewProfit,
     newTotalPool: newTotal,
+    hppDelta,
+    profitDelta,
+    // Breakdown of ground truth calculation
+    directHpp,
+    directProfit,
+    handoverHpp,
+    handoverProfit,
+    hppDeducted,
+    profitDeducted,
+    // Courier pending
     courierHppPending: courierSums.hppPending,
     courierProfitPending: courierSums.profitPending,
     courierCashTotal: courierSums.balance,
     totalWithCourier,
-    totalPaymentsCount: totalPaymentsCount || 0,
-    brankasBankPaymentsCount: brankasBankPaymentsCount || 0,
     changes,
     warnings,
     isSafe: warnings.length === 0 && !(currentTotal > 0 && newTotal === 0),

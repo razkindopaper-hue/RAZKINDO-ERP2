@@ -168,10 +168,20 @@ export default function PWAOrdersModule() {
         ? ` Uang masuk ke ${data.data.destination}.`
         : '';
       toast.success(`Pesanan ditandai lunas!${cashbackMsg}${destMsg}`);
+      // Show warning if courier cash was not updated
+      const ccUpdate = data?.data?.courierCashUpdate;
+      if (ccUpdate && !ccUpdate.success && !ccUpdate.skipped) {
+        const errOrWarn = ccUpdate.warning || ccUpdate.error;
+        if (errOrWarn) {
+          toast.error(`⚠️ Dana kurir tidak ter-update: ${errOrWarn}`, { duration: 8000, id: 'courier-cash-warn' });
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['pwa-approved-unpaid-orders'] });
       queryClient.invalidateQueries({ queryKey: ['pwa-pending-orders'] });
       queryClient.invalidateQueries({ queryKey: ['cash-boxes'] });
       queryClient.invalidateQueries({ queryKey: ['bank-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['finance-pools'] });
+      queryClient.invalidateQueries({ queryKey: ['courier-cash-summary'] });
       setLunasDialog(null);
       setLunasCashBoxId('');
       setLunasBankAccountId('');

@@ -465,3 +465,24 @@ Stage Summary:
 - Courier pending amounts are shown as context for why sync result might be lower than expected
 - AI auto-adjust also has safety checks now
 - Files modified: src/app/api/finance/pools/route.ts, src/app/api/ai/discrepancy/route.ts, src/components/erp/FinanceModule.tsx
+---
+Task ID: 1
+Agent: Main Agent
+Task: Investigasi & perbaiki "dana kurir tidak ter-update saat kurir membawa uang"
+
+Work Log:
+- Analisis penuh flow: transaksi → deliver → mark-lunas → handover
+- Temukan 3 tempat yang memanggil atomic_add_courier_cash: deliver (route.ts:166), mark-lunas (route.ts:283), supabase.ts wrapper
+- Identifikasi bug: jika courier.unit_id dan transaction.unit_id keduanya null, courier cash TIDAK ter-update (kondisi && cashUnitId gagal), tapi TIDAK ada warning ke user
+- Identifikasi bug: error dari RPC retry (3x percobaan) silently ignored — user tetap melihat "berhasil"
+- Perbaiki courier/deliver/route.ts: tambahkan warning jika cashUnitId null, tambahkan courierCashUpdate di response
+- Perbaiki transactions/mark-lunas/route.ts: tambahkan courierCashUpdate tracking + warning di response
+- Perbaiki CourierDashboard.tsx: tampilkan toast error jika courier cash gagal ter-update
+- Perbaiki PWAOrdersModule.tsx: tampilkan toast warning jika courier cash gagal saat mark lunas
+
+Stage Summary:
+- 4 file diubah: deliver route, mark-lunas route, CourierDashboard, PWAOrdersModule
+- courierCashUpdate kini di-return di semua response (deliver + mark-lunas)
+- Warning visible ke user jika dana kurir gagal ter-update
+- Error log dengan type 'error' dibuat jika unit_id kurir hilang
+- Server confirmed running (HTTP 200) setelah perubahan

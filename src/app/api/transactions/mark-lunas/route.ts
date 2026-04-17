@@ -264,11 +264,19 @@ export async function POST(request: NextRequest) {
     // If the courier already collected cash during delivery, avoid double-crediting.
     // Also track hpp/profit portions in courier_cash so that when courier deposits (setor ke brankas),
     // pool balances can be correctly updated at that time.
+    let courierCashUpdate: { success: boolean; amount: number; hppPortion: number; profitPortion: number; newBalance: number; error?: string; warning?: string; skipped?: boolean } | null = null;
+
     if ((isCashWithCourier || isTempoWithCourier) && txCamel.courierId) {
       try {
         const { data: courierData } = await db.from('users').select('name, unit_id').eq('id', txCamel.courierId).single();
         const courierUnitId = courierData?.unit_id || txCamel.unitId;
-        if (courierUnitId) {
+        if (!courierUnitId) {
+          // CRITICAL: courier has no unit_id — cannot update courier cash
+          const warnMsg = `Dana kurir TIDAK ter-update: kurir (id: ${txCamel.courierId}) dan transaksi (id: ${transactionId}) tidak memiliki unit_id. Hubungi admin untuk set unit_id kurir.`;
+          console.error(`[MARK_LUNAS] ${warnMsg}`);
+          courierCashUpdate = { success: false, amount: total, hppPortion: 0, profitPortion: 0, newBalance: 0, warning: warnMsg };
+          createLog(db, { type: 'error', userId: authUser.id, action: 'courier_cash_missing_unit', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ amount: total, courierId: txCamel.courierId, transactionId }), message: warnMsg });
+        } else {
           // Calculate how much the courier still needs to collect (remaining = total - already_paid)
           const alreadyCollected = txCamel.paidAmount || 0;
           const remainingToCollect = Math.max(0, total - alreadyCollected);
@@ -289,15 +297,19 @@ export async function POST(request: NextRequest) {
             });
             if (ccError) {
               console.error('[MARK_LUNAS] Failed to add courier cash (non-blocking):', ccError.message);
+              courierCashUpdate = { success: false, amount: remainingToCollect, hppPortion: hppForCourier, profitPortion: profitForCourier, newBalance: 0, error: `Gagal update dana kurir: ${ccError.message}` };
             } else {
               console.log(`[MARK_LUNAS] Cash Rp ${remainingToCollect.toLocaleString('id-ID')} from ${txCamel.invoiceNo} added to courier ${courierData?.name || txCamel.courierId} balance (new: ${newBalance}, HPP: ${hppForCourier}, Profit: ${profitForCourier})`);
+              courierCashUpdate = { success: true, amount: remainingToCollect, hppPortion: hppForCourier, profitPortion: profitForCourier, newBalance: Number(newBalance) || 0 };
             }
           } else {
             console.log(`[MARK_LUNAS] Skipping courier cash credit for ${txCamel.invoiceNo} — courier already collected full amount (Rp ${alreadyCollected.toLocaleString('id-ID')})`);
+            courierCashUpdate = { success: true, amount: 0, hppPortion: 0, profitPortion: 0, newBalance: 0, skipped: true };
           }
         }
       } catch (ccErr) {
         console.error('[MARK_LUNAS] Courier cash credit error (non-blocking):', ccErr);
+        courierCashUpdate = { success: false, amount: total, hppPortion: 0, profitPortion: 0, newBalance: 0, error: `Error: ${ccErr instanceof Error ? ccErr.message : String(ccErr)}` };
       }
     }
 
@@ -496,6 +508,7 @@ export async function POST(request: NextRequest) {
         total,
         cashbackEarned,
         destination: (isCashWithCourier || isTempoWithCourier) ? `Kurir (${txCamel.courierId})` : (paymentMethod === 'cash' ? targetCashBoxName : targetBankAccountName),
+        courierCashUpdate,
       },
     });
   } catch (error) {
