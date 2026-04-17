@@ -30,7 +30,7 @@ interface WSEmitOptions {
  */
 export async function wsEmit(options: WSEmitOptions): Promise<boolean> {
   try {
-    const wsSecret = process.env.WS_SECRET || 'razkindo-erp-ws-secret-2024';
+    const wsSecret = process.env.WS_SECRET;
     if (!wsSecret) {
       console.warn('[WS Dispatch] WS_SECRET not set, skipping emit');
       return false;

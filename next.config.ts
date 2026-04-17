@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // output: 'standalone', // disabled: standalone server crashes, using next dev instead
+  output: 'standalone',
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   reactStrictMode: false,
 

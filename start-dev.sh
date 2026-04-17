@@ -1,4 +1,5 @@
 #!/bin/bash
-cd /home/z/my-project
-export NODE_OPTIONS="--max-old-space-size=2048"
-exec node node_modules/.bin/next dev -p 3000 --webpack
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_DIR"
+export NODE_OPTIONS="--max-old-space-size=4096"
+exec npx next dev -p 3000 --turbopack

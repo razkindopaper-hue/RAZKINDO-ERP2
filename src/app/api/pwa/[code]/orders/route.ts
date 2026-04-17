@@ -145,19 +145,7 @@ export async function POST(
     // Payment method: default 'tempo' — sales/admin will set the actual method when approving
     const paymentMethod = 'tempo';
 
-    // Generate invoice number
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const { count: txCount } = await db
-      .from('transactions')
-      .select('*', { count: 'exact', head: true })
-      .eq('type', 'sale')
-      .gte('created_at', monthStart.toISOString());
-
-    const invoiceNo = generateInvoiceNo('sale', txCount || 0);
-    const transactionId = generateId();
-
-    // Find the assigned sales user (or any sales in unit as fallback)
+    // Find the assigned sales user (or any sales in unit as fallback) BEFORE creating transaction
     let createdById = customer.assigned_to_id;
     if (!createdById) {
       const { data: salesUser } = await db
@@ -189,6 +177,77 @@ export async function POST(
       return NextResponse.json({ error: 'Tidak ada user yang tersedia untuk menerima pesanan' }, { status: 400 });
     }
 
+    // Generate invoice number with retry for race conditions
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    let invoiceNo: string = '';
+    let transactionId: string = '';
+    let transaction: any = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { count: txCount } = await db
+        .from('transactions')
+        .select('*', { count: 'exact', head: true })
+        .eq('type', 'sale')
+        .gte('created_at', monthStart.toISOString());
+
+      invoiceNo = generateInvoiceNo('sale', txCount || 0) + (attempt > 0 ? `-${attempt}` : '');
+      transactionId = generateId();
+
+      try {
+        // Create transaction — STATUS: PENDING (needs approval from sales/admin)
+        const result = await db
+          .from('transactions')
+          .insert({
+            id: transactionId,
+            type: 'sale',
+            invoice_no: invoiceNo,
+            unit_id: customer.unit_id,
+            created_by_id: createdById,
+            customer_id: customer.id,
+            total: 0,
+            paid_amount: 0,
+            remaining_amount: 0,
+            total_hpp: 0,
+            total_profit: 0,
+            hpp_paid: 0,
+            profit_paid: 0,
+            hpp_unpaid: 0,
+            profit_unpaid: 0,
+            payment_method: paymentMethod,
+            status: 'pending',
+            payment_status: 'unpaid',
+            notes: data.notes || `Order dari PWA (${customer.name})`,
+            transaction_date: now.toISOString(),
+          })
+          .select(`
+            *,
+            unit:units(*),
+            created_by:users!created_by_id(id, name, phone),
+            customer:customers(*)
+          `)
+          .single();
+
+        if (result.error) throw result.error;
+        transaction = result.data;
+        break;
+      } catch (error: any) {
+        // Retry on unique constraint violation (duplicate invoice number)
+        const isDuplicateKey = error.code === '23505' ||
+          error.message?.includes('duplicate key') ||
+          error.message?.includes('23505') ||
+          error.message?.includes('unique constraint');
+        if (isDuplicateKey && attempt < 2) continue;
+        console.error('PWA order create error:', error);
+        return NextResponse.json({ error: 'Gagal membuat pesanan' }, { status: 500 });
+      }
+    }
+
+    if (!transaction) {
+      return NextResponse.json({ error: 'Gagal membuat pesanan setelah 3 percobaan' }, { status: 500 });
+    }
+
     // Build items list — explicitly extract only needed fields (no spreading)
     const items = data.items.map((item: any) => ({
       productId: item.productId,
@@ -201,44 +260,6 @@ export async function POST(
       qtyUnitType: 'main',
       profit: 0,
     }));
-
-    // Create transaction — STATUS: PENDING (needs approval from sales/admin)
-    const { data: transaction, error: txError } = await db
-      .from('transactions')
-      .insert({
-        id: transactionId,
-        type: 'sale',
-        invoice_no: invoiceNo,
-        unit_id: customer.unit_id,
-        created_by_id: createdById,
-        customer_id: customer.id,
-        total: 0,
-        paid_amount: 0,
-        remaining_amount: 0,
-        total_hpp: 0,
-        total_profit: 0,
-        hpp_paid: 0,
-        profit_paid: 0,
-        hpp_unpaid: 0,
-        profit_unpaid: 0,
-        payment_method: paymentMethod,
-        status: 'pending', // ← PENDING — menunggu approval sales/admin
-        payment_status: 'unpaid',
-        notes: data.notes || `Order dari PWA (${customer.name})`,
-        transaction_date: now.toISOString(),
-      })
-      .select(`
-        *,
-        unit:units(*),
-        created_by:users!created_by_id(id, name, phone),
-        customer:customers(*)
-      `)
-      .single();
-
-    if (txError) {
-      console.error('PWA order create error:', txError);
-      return NextResponse.json({ error: 'Gagal membuat pesanan' }, { status: 500 });
-    }
 
     // Insert transaction items with price=0 (sales will update later)
     const txItems = items.map(item => ({

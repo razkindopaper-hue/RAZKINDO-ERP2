@@ -1,11 +1,13 @@
 #!/bin/bash
-cd /home/z/my-project
+# Razkindo ERP - Keep Alive (production standalone server with auto-restart)
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_DIR"
 
 # Start event-queue if not running
 if ! pgrep -f "event-queue" > /dev/null 2>&1; then
-  cd mini-services/event-queue
-  setsid bun index.ts >> /home/z/my-project/event-queue.log 2>&1 &
-  cd /home/z/my-project
+  cd "$PROJECT_DIR/mini-services/event-queue"
+  setsid bun index.ts >> "$PROJECT_DIR/event-queue.log" 2>&1 &
+  cd "$PROJECT_DIR"
   sleep 2
 fi
 
@@ -13,24 +15,23 @@ fi
 RESTART_COUNT=0
 while true; do
   RESTART_COUNT=$((RESTART_COUNT + 1))
-  echo "[$(date)] Starting Next.js server (attempt #$RESTART_COUNT)..." >> /home/z/my-project/server-restart.log
-  
-  # Run the server and capture its exit code
+  echo "[$(date)] Starting Next.js server (attempt #$RESTART_COUNT)..." >> "$PROJECT_DIR/server-restart.log"
+
   HOSTNAME=0.0.0.0 PORT=3000 NODE_OPTIONS='--max-old-space-size=1536' \
-    node .next/standalone/server.js >> /home/z/my-project/dev.log 2>&1
+    node .next/standalone/server.js >> "$PROJECT_DIR/dev.log" 2>&1
   EXIT=$?
-  
-  echo "[$(date)] Server exited with code $EXIT" >> /home/z/my-project/server-restart.log
-  
+
+  echo "[$(date)] Server exited with code $EXIT" >> "$PROJECT_DIR/server-restart.log"
+
   # If exit code is 0, it was a clean shutdown - don't restart
   if [ "$EXIT" -eq 0 ]; then
-    echo "[$(date)] Clean shutdown, not restarting" >> /home/z/my-project/server-restart.log
+    echo "[$(date)] Clean shutdown, not restarting" >> "$PROJECT_DIR/server-restart.log"
     break
   fi
-  
+
   # If too many restarts, slow down
   if [ "$RESTART_COUNT" -gt 10 ]; then
-    echo "[$(date)] Too many restarts, waiting 30s..." >> /home/z/my-project/server-restart.log
+    echo "[$(date)] Too many restarts, waiting 30s..." >> "$PROJECT_DIR/server-restart.log"
     sleep 30
   else
     sleep 3

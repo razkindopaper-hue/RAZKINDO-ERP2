@@ -99,7 +99,8 @@ export async function apiFetch<T>(
         clearTimeout(timeoutId);
         throw new ApiError(0, 'network', 'Request was aborted');
       }
-      options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      const onAbort = () => controller.abort();
+      options.signal.addEventListener('abort', onAbort, { once: true });
     }
     
     const response = await fetch(url, {

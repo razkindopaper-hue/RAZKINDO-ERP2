@@ -108,7 +108,7 @@ export async function PATCH(
 
     createLog(db, {
       type: 'activity',
-      userId: data.updatedById,
+      userId: authUserId,
       action: 'receivable_updated',
       entity: 'receivable',
       entityId: id,

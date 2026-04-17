@@ -182,18 +182,19 @@ export async function withFallback<T>(
   }
 
   // 3. Try executing with timeout
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = await Promise.race([
-      fn(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
-      ),
-    ]);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
+    const result = await Promise.race([fn(), timeoutPromise]);
+    clearTimeout(timer);
 
     // Success — record it for the circuit breaker
     recordSuccess(cbName);
     return result;
   } catch (err) {
+    clearTimeout(timer);
     const message = err instanceof Error ? err.message : String(err);
 
     // Record failure for circuit breaker
