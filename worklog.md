@@ -167,3 +167,35 @@ Stage Summary:
 - TypeScript compiles with 0 new errors (only pre-existing error in supabase-health/route.ts)
 - Server healthy on port 3000
 - All new APIs properly require authentication
+---
+Task ID: 1
+Agent: Main
+Task: Add real-time system monitoring (RAM/CPU), Supabase health, restart/repair/clean buttons to Storage Z AI tab
+
+Work Log:
+- Analyzed existing StorageTab.tsx (1248 lines), SettingsModule.tsx, and API routes
+- Discovered existing `/api/system/auto-repair` route with consistency checker integration
+- Created `/api/system/stats/route.ts` - Real-time CPU, RAM, swap, Node.js memory, uptime, process info (reads /proc/meminfo, /proc/stat, /proc/cpuinfo, /proc/loadavg)
+- Created `/api/system/restart/route.ts` - POST endpoint to restart Next.js server (kills process, auto-restarted by process manager)
+- Created `/api/system/supabase-health/route.ts` - Real-time Supabase health check (REST API, Read/Write test, critical tables, Prisma direct connection)
+- Completely rewrote `StorageTab.tsx` with:
+  - Real-time CPU & RAM circular gauges (auto-refresh every 3s)
+  - Real-time Supabase connection status (auto-refresh every 5s)
+  - Server uptime, process info, connections count
+  - Node.js process memory breakdown (RSS, Heap Used, Heap Total, Swap)
+  - Supabase health check details (4 checks: REST API, Read/Write, Tables, Prisma)
+  - 3 action cards: Restart Server, Auto Repair Bugs, Clean Storage
+  - Restart confirmation dialog with auto-page-reload after 5s
+  - Auto-repair result dialog showing passed/fixed/failed/skipped checks
+  - Quick cleanup that auto-selects safe-to-delete items
+  - All existing functionality preserved (disk info, quota, table sizes, data browser, cleanup, backup)
+- Fixed `generateId` import path in supabase-health route (was `@/lib/generate-id`, corrected to `@/lib/supabase-helpers`)
+- Removed duplicate auto-repair route (existing one already works with consistency checker)
+- TypeScript: 0 errors ✅
+- Lint: 0 errors on new/modified files ✅
+- Dev server: HTTP 200 ✅
+
+Stage Summary:
+- 3 new API routes created: /api/system/stats, /api/system/restart, /api/system/supabase-health
+- StorageTab.tsx completely rewritten with real-time monitoring capabilities
+- All existing features preserved and enhanced
