@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
-import { toCamelCase, rowsToCamelCase } from '@/lib/supabase-helpers';
+import { toCamelCase, rowsToCamelCase, generateId } from '@/lib/supabase-helpers';
 import { enforceSuperAdmin } from '@/lib/require-auth';
 
 // =====================================================================
@@ -79,16 +79,18 @@ export async function POST(request: NextRequest) {
     const { data, error } = await db
       .from('custom_roles')
       .insert({
+        id: generateId(),
         name: roleName,
         description: description || null,
         createdById: authResult.userId!,
+        updatedAt: new Date().toISOString(),
       })
       .select('*')
       .single();
 
     if (error) {
       console.error('Custom roles insert error:', error);
-      return NextResponse.json({ error: error.message || 'Gagal membuat role' }, { status: 500 });
+      return NextResponse.json({ error: 'Gagal membuat role: ' + (error.message || 'Unknown error') }, { status: 500 });
     }
 
     return NextResponse.json({ role: toCamelCase(data) });

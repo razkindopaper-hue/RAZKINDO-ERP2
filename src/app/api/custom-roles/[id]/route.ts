@@ -52,7 +52,7 @@ export async function PATCH(
       await db
         .from('users')
         .update({ role: updateData.name })
-        .eq('customRoleId', id);
+        .eq('custom_role_id', id);
     }
 
     return NextResponse.json({ role: toCamelCase(updated) });
@@ -76,8 +76,8 @@ export async function DELETE(
     const { count } = await db
       .from('users')
       .select('*', { count: 'exact', head: true })
-      .eq('customRoleId', id)
-      .eq('isActive', true);
+      .eq('custom_role_id', id)
+      .eq('is_active', true);
     if ((count || 0) > 0) {
       return NextResponse.json(
         { error: `Tidak dapat menghapus role yang masih digunakan oleh ${count} karyawan aktif. Nonaktifkan atau pindahkan karyawan terlebih dahulu.` },
@@ -86,7 +86,7 @@ export async function DELETE(
     }
 
     // Delete inactive users with this role
-    await db.from('users').delete().eq('customRoleId', id).eq('isActive', false);
+    await db.from('users').delete().eq('custom_role_id', id).eq('is_active', false);
 
     // Delete the role
     await db.from('custom_roles').delete().eq('id', id);
