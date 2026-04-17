@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/supabase';
+import { db, prisma } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { rowsToCamelCase, toCamelCase } from '@/lib/supabase-helpers';
 
@@ -59,15 +59,30 @@ export async function GET(request: NextRequest) {
       totalCompanyTransactions: (companyTx || []).length,
     };
 
-    // Sales target
+    // Sales target (use Prisma — PostgREST can't find 'SalesTarget' table)
     const now = new Date();
     let target: any = null;
     if (period === 'month') {
-      const { data: salesTarget } = await db.from('SalesTarget').select(`*, user:users!user_id(id, name, email)`).eq('user_id', salesId).eq('period', 'monthly').eq('year', now.getFullYear()).eq('month', now.getMonth() + 1).eq('status', 'active').maybeSingle();
+      const salesTarget = await prisma.salesTarget.findFirst({
+        where: { userId: salesId, period: 'monthly', year: now.getFullYear(), month: now.getMonth() + 1, status: 'active' },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      });
       if (salesTarget) {
         const achievedAmount = personalStats.totalSales;
-        const achievedPercentage = salesTarget.target_amount > 0 ? Math.round((achievedAmount / salesTarget.target_amount) * 100) : 0;
-        target = { ...toCamelCase(salesTarget), achievedAmount, achievedPercentage };
+        const achievedPercentage = salesTarget.targetAmount > 0 ? Math.round((achievedAmount / salesTarget.targetAmount) * 100) : 0;
+        target = {
+          id: salesTarget.id,
+          userId: salesTarget.userId,
+          period: salesTarget.period,
+          year: salesTarget.year,
+          month: salesTarget.month,
+          targetAmount: salesTarget.targetAmount,
+          status: salesTarget.status,
+          notes: salesTarget.notes,
+          user: salesTarget.user ? { id: salesTarget.user.id, name: salesTarget.user.name, email: salesTarget.user.email } : null,
+          achievedAmount: achievedAmount,
+          achievedPercentage,
+        };
       }
     }
 

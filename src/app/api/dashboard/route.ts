@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/supabase';
+import { db, prisma } from '@/lib/supabase';
 import { toCamelCase, rowsToCamelCase } from '@/lib/supabase-helpers';
 import { verifyAndGetAuthUser } from '@/lib/token';
 
@@ -204,13 +204,11 @@ export async function GET(request: NextRequest) {
         return q;
       })(),
 
-      // Sales targets
-      db.from('SalesTarget')
-        .select('*, user:users!user_id(id, name, role, email)')
-        .eq('period', 'monthly')
-        .eq('year', currentYear)
-        .eq('month', currentMonth)
-        .eq('status', 'active'),
+      // Sales targets (use Prisma — PostgREST can't find 'SalesTarget' table)
+      prisma.salesTarget.findMany({
+        where: { period: 'monthly', year: currentYear, month: currentMonth, status: 'active' },
+        include: { user: { select: { id: true, name: true, role: true, email: true } } },
+      }),
 
       // Super admin users
       db.from('users')
@@ -307,7 +305,19 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b[1].total - a[1].total)
       .slice(0, 5);
 
-    const salesTargets = rowsToCamelCase(salesTargetsData.data || []);
+    const salesTargets = (salesTargetsData || []).map((t: any) => ({
+      id: t.id,
+      userId: t.userId,
+      period: t.period,
+      year: t.year,
+      month: t.month,
+      quarter: t.quarter,
+      targetAmount: t.targetAmount,
+      achievedAmount: t.achievedAmount,
+      status: t.status,
+      notes: t.notes,
+      user: t.user ? { id: t.user.id, name: t.user.name, role: t.user.role, email: t.user.email } : null,
+    }));
     const superAdminUsers = rowsToCamelCase(superAdminUsersData.data || []);
 
     // ========== BATCH 2: Queries depending on batch 1 results ==========
