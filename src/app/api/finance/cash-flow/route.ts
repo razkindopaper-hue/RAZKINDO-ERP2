@@ -186,7 +186,7 @@ async function fetchPayments(dateFilter: Record<string, string>): Promise<CashFl
     .select(`
       id,
       amount,
-      payment_method,
+      paymentMethod,
       hpp_portion,
       profit_portion,
       notes,
@@ -210,7 +210,7 @@ async function fetchPayments(dateFilter: Record<string, string>): Promise<CashFl
     const tx = p.transaction;
     const customerName = tx?.customer?.name || 'Pelanggan';
     const invoiceNo = tx?.invoice_no || '-';
-    const paymentMethod = p.payment_method || 'cash';
+    const paymentMethod = p.paymentMethod || 'cash';
     const receivedBy = (p.received_by as any)?.name || 'Sistem';
 
     let destination = '-';

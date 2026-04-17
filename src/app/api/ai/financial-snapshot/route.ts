@@ -270,14 +270,14 @@ export async function GET(request: NextRequest) {
 
       // ── 8a. PEMBAYARAN 7 HARI TERAKHIR ──
       (() => {
-        let q = db.from('payments').select('amount, payment_method, created_at, transaction:transactions(type)');
+        let q = db.from('payments').select('amount, paymentMethod, created_at, transaction:transactions(type)');
         q = q.gte('created_at', sevenDaysAgo.toISOString());
         return q;
       })(),
 
       // ── 8b. PEMBAYARAN 30 HARI TERAKHIR ──
       (() => {
-        let q = db.from('payments').select('amount, payment_method, created_at, transaction:transactions(type)');
+        let q = db.from('payments').select('amount, paymentMethod, created_at, transaction:transactions(type)');
         q = q.gte('created_at', thirtyDaysAgo.toISOString());
         return q;
       })(),

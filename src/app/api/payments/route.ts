@@ -127,12 +127,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate proportional HPP and Profit
+    // Calculate proportional HPP and Profit (null-safe)
+    const totalHpp = txCamel.totalHpp || 0;
+    const totalProfit = txCamel.totalProfit || 0;
     const hppPortion = txCamel.total > 0 
-      ? (txCamel.totalHpp / txCamel.total) * data.amount 
+      ? (totalHpp / txCamel.total) * data.amount 
       : 0;
     const profitPortion = txCamel.total > 0 
-      ? (txCamel.totalProfit / txCamel.total) * data.amount 
+      ? (totalProfit / txCamel.total) * data.amount 
       : 0;
 
     // For sale transactions: validate destination account
@@ -160,8 +162,8 @@ export async function POST(request: NextRequest) {
     // Pre-compute values for transaction steps
     const newPaidAmount = txCamel.paidAmount + data.amount;
     const newRemaining = txCamel.total - newPaidAmount;
-    const newHppPaid = txCamel.hppPaid + hppPortion;
-    const newProfitPaid = txCamel.profitPaid + profitPortion;
+    const newHppPaid = (txCamel.hppPaid || 0) + hppPortion;
+    const newProfitPaid = (txCamel.profitPaid || 0) + profitPortion;
     const paymentStatus = newRemaining <= 0 ? 'paid' : newPaidAmount > 0 ? 'partial' : 'unpaid';
     const allowedUpgrade = ['approved'];
     const txStatus = paymentStatus === 'paid' && allowedUpgrade.includes(txCamel.status) ? 'paid' : txCamel.status;
@@ -179,7 +181,7 @@ export async function POST(request: NextRequest) {
           transaction_id: data.transactionId,
           received_by_id: authUserId,
           amount: data.amount,
-          payment_method: data.paymentMethod,
+          paymentMethod: data.paymentMethod,
           cash_box_id: data.paymentMethod === 'cash' ? data.cashBoxId : null,
           bank_account_id: (data.paymentMethod === 'transfer' || data.paymentMethod === 'giro') ? data.bankAccountId : null,
           bank_name: data.bankName,
@@ -206,8 +208,8 @@ export async function POST(request: NextRequest) {
           remaining_amount: Math.max(0, newRemaining),
           hpp_paid: newHppPaid,
           profit_paid: newProfitPaid,
-          hpp_unpaid: txCamel.totalHpp - newHppPaid,
-          profit_unpaid: txCamel.totalProfit - newProfitPaid,
+          hpp_unpaid: totalHpp - newHppPaid,
+          profit_unpaid: totalProfit - newProfitPaid,
           payment_status: paymentStatus,
           status: txStatus
         })
@@ -405,8 +407,23 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Create payment error:', error);
     const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
-    const status = error instanceof Error && error.message.includes('tidak ditemukan') ? 404 : 
-          error instanceof Error && (error.message.includes('melebihi') || error.message.includes('belum disetujui') || error.message.includes('dibatalkan') || error.message.includes('wajib') || error.message.includes('non_negative') || error.message.includes('constraint') || error.message.includes('Stok') || error.message.includes('stok') || error.message.includes('Saldo tidak mencukupi') || error.message.includes('sudah lunas')) ? 400 : 500;
+    const isClientError = error instanceof Error && (
+      error.message.includes('tidak ditemukan') ||
+      error.message.includes('melebihi') ||
+      error.message.includes('belum disetujui') ||
+      error.message.includes('dibatalkan') ||
+      error.message.includes('wajib') ||
+      error.message.includes('non_negative') ||
+      error.message.includes('constraint') ||
+      error.message.includes('Stok') ||
+      error.message.includes('stok') ||
+      error.message.includes('Saldo tidak mencukupi') ||
+      error.message.includes('sudah lunas') ||
+      error.message.includes('tidak aktif') ||
+      error.message.includes('pool tidak mencukupi')
+    );
+    const status = error instanceof Error && error.message.includes('tidak ditemukan') ? 404 :
+          isClientError ? 400 : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

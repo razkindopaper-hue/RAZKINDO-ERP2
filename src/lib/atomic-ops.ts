@@ -23,7 +23,17 @@ export async function atomicUpdateBalance(
     p_delta: delta,
     p_min: minBalance,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    const label = table === 'cash_boxes' ? 'Brankas' : 'Akun bank';
+    const msg = error.message.toLowerCase();
+    if (msg.includes('insufficient') || msg.includes('below minimum')) {
+      throw new Error(`Saldo ${label} tidak mencukupi`);
+    }
+    if (msg.includes('not found') || msg.includes('no row')) {
+      throw new Error(`${label} tidak ditemukan`);
+    }
+    throw new Error(error.message);
+  }
   return Number(data) || 0;
 }
 
@@ -43,7 +53,16 @@ export async function atomicUpdatePoolBalance(
     p_delta: delta,
     p_min: minBalance,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    const msg = error.message.toLowerCase();
+    if (msg.includes('insufficient') || msg.includes('below minimum')) {
+      throw new Error('Saldo pool tidak mencukupi');
+    }
+    if (msg.includes('not found') || msg.includes('no row')) {
+      throw new Error('Pool balance tidak ditemukan');
+    }
+    throw new Error(error.message);
+  }
   return Number(data) || 0;
 }
 

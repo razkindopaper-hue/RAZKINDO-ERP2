@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
 
     // Deliveries
     const { data: deliveries } = await db.from('transactions').select(`
-      *, customer:customers(id, name, distance, phone), unit:units(id, name), payments:payments(id, amount, payment_method, received_by_id)
+      *, customer:customers(id, name, distance, phone), unit:units(id, name), payments:payments(id, amount, paymentMethod, received_by_id)
     `).eq('courier_id', courierId).eq('type', 'sale').gte('delivered_at', startISO).lte('delivered_at', endISO).in('status', ['approved', 'paid']).order('delivered_at', { ascending: false }).limit(500);
 
     const totalDeliveries = (deliveries || []).length;
@@ -76,8 +76,8 @@ export async function GET(request: NextRequest) {
       if (isFar) { farDeliveries++; totalCommission += courier.far_commission || 0; }
       else { nearDeliveries++; totalCommission += courier.near_commission || 0; }
       const deliveryPayments = ((d as any).payments || []).filter((p: any) => p.received_by_id === courierId);
-      cashCollected += deliveryPayments.filter((p: any) => p.payment_method === 'cash').reduce((s: number, p: any) => s + p.amount, 0);
-      transferCollected += deliveryPayments.filter((p: any) => p.payment_method === 'transfer').reduce((s: number, p: any) => s + p.amount, 0);
+      cashCollected += deliveryPayments.filter((p: any) => p.paymentMethod === 'cash').reduce((s: number, p: any) => s + p.amount, 0);
+      transferCollected += deliveryPayments.filter((p: any) => p.paymentMethod === 'transfer').reduce((s: number, p: any) => s + p.amount, 0);
     }
     piutangRemaining = (deliveries || []).reduce((s: number, d: any) => s + (d.remaining_amount || 0), 0);
 
@@ -88,14 +88,14 @@ export async function GET(request: NextRequest) {
       const dayStart = new Date(chartStart);
       const dayEnd = new Date(chartStart); dayEnd.setHours(23, 59, 59, 999);
       const dayDeliveries = (deliveries || []).filter((d: any) => { if (!d.delivered_at) return false; const dd = new Date(d.delivered_at); return dd >= dayStart && dd <= dayEnd; });
-      const dayCash = dayDeliveries.reduce((s: number, d: any) => { const dps = ((d as any).payments || []).filter((p: any) => p.received_by_id === courierId && p.payment_method === 'cash'); return s + dps.reduce((ss: number, p: any) => ss + p.amount, 0); }, 0);
+      const dayCash = dayDeliveries.reduce((s: number, d: any) => { const dps = ((d as any).payments || []).filter((p: any) => p.received_by_id === courierId && p.paymentMethod === 'cash'); return s + dps.reduce((ss: number, p: any) => ss + p.amount, 0); }, 0);
       const dayCommission = dayDeliveries.reduce((s: number, d: any) => { const dist = d.delivery_distance || (d.customer as any)?.distance || 'near'; return s + (dist === 'far' ? (courier.far_commission || 0) : (courier.near_commission || 0)); }, 0);
       chartData.push({ date: dayStart.toISOString().split('T')[0], deliveries: dayDeliveries.length, cash: dayCash, commission: dayCommission });
       chartStart.setDate(chartStart.getDate() + 1);
     }
 
     const todayDeliveries = (deliveries || []).filter((d: any) => { if (!d.delivered_at) return false; return new Date(d.delivered_at) >= today; });
-    const todayCash = todayDeliveries.reduce((s: number, d: any) => { const dps = ((d as any).payments || []).filter((p: any) => p.received_by_id === courierId && p.payment_method === 'cash'); return s + dps.reduce((ss: number, p: any) => ss + p.amount, 0); }, 0);
+    const todayCash = todayDeliveries.reduce((s: number, d: any) => { const dps = ((d as any).payments || []).filter((p: any) => p.received_by_id === courierId && p.paymentMethod === 'cash'); return s + dps.reduce((ss: number, p: any) => ss + p.amount, 0); }, 0);
 
     const { data: pendingDeliveries } = await db.from('transactions').select(`
       id, invoice_no, total, paid_amount, remaining_amount, payment_method, payment_status,

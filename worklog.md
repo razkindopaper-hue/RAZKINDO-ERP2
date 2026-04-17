@@ -179,3 +179,22 @@ Stage Summary:
 - Fix: Added `id: generateId()` to all entity insert calls
 - 17 files modified, 22 insert calls fixed
 - Server verified working after fix
+---
+Task ID: payment-error-fix
+Agent: Main Agent
+Task: Fix "simpan pembayaran: terjadi kesalahan server" (save payment server error)
+
+Work Log:
+- Investigated all payment-related API routes (payments, payment/[invoiceNo], finance/receivables, finance/debts/payment)
+- Found root cause: atomicUpdateBalance and atomicUpdatePoolBalance in atomic-ops.ts throw English error messages from PostgreSQL RPCs (e.g., "Insufficient balance or record not found")
+- The /api/payments catch block only checks Indonesian keywords, so English errors fall through to HTTP 500
+- Fixed atomic-ops.ts: both functions now translate English RPC errors to Indonesian before re-throwing
+- Fixed /api/payments/route.ts: added null-safe guards for HPP/Profit calculations (|| 0)
+- Improved error classification to catch additional patterns ('tidak aktif', 'pool tidak mencukupi')
+- Fix propagates to all 40+ call sites across the app (salaries, transfers, cashback, debts, etc.)
+
+Stage Summary:
+- Files modified: src/lib/atomic-ops.ts, src/app/api/payments/route.ts
+- Error messages now properly translated: "Insufficient balance" → "Saldo Brankas/Akun bank tidak mencukupi"
+- Null-safe HPP/Profit calculations prevent NaN edge cases
+- Server verified healthy after changes (HTTP 200)
