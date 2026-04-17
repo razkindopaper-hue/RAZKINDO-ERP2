@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { enforceSuperAdmin } from '@/lib/require-auth';
-import { readdirSync, statSync, existsSync } from 'fs';
+import { readdirSync, statSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 
-function getDirectorySize(dirPath: string): number {
+function getDirectorySize(dirPath: string, skipDirs: string[] = ['node_modules', '.next']): number {
   if (!existsSync(dirPath)) return 0;
   let totalSize = 0;
   try {
@@ -14,8 +14,8 @@ function getDirectorySize(dirPath: string): number {
     for (const entry of entries) {
       const fullPath = join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === '.next') { totalSize += 0; continue; }
-        totalSize += getDirectorySize(fullPath);
+        if (skipDirs.includes(entry.name)) continue;
+        totalSize += getDirectorySize(fullPath, skipDirs);
       } else {
         try { totalSize += statSync(fullPath).size; } catch { /* skip */ }
       }
@@ -96,8 +96,22 @@ export async function GET(request: NextRequest) {
       tableCounts[table] = count || 0;
     }
 
-    // Cleanable counts
+    // Cleanable counts — Server temp files (size in bytes)
     const cleanableCounts: Record<string, number> = {};
+    const tmpTectonicPath = '/tmp/tectonic';
+    cleanableCounts['tmp_tectonic'] = existsSync(tmpTectonicPath) ? getDirectorySize(tmpTectonicPath, []) : 0;
+    const tmpHeadTarPath = '/tmp/HEAD.tar';
+    try { cleanableCounts['tmp_head_tar'] = existsSync(tmpHeadTarPath) ? statSync(tmpHeadTarPath).size : 0; } catch { cleanableCounts['tmp_head_tar'] = 0; }
+    const tmpArchivePath = '/tmp/razkindo-archive';
+    cleanableCounts['tmp_razkindo_archive'] = existsSync(tmpArchivePath) ? getDirectorySize(tmpArchivePath, []) : 0;
+    const tmpProjectPath = '/tmp/my-project';
+    cleanableCounts['tmp_my_project'] = existsSync(tmpProjectPath) ? getDirectorySize(tmpProjectPath, []) : 0;
+    const nextCachePath = join(projectRoot, '.next', 'cache');
+    cleanableCounts['next_cache'] = existsSync(nextCachePath) ? getDirectorySize(nextCachePath, []) : 0;
+    const nodeCachePath = join(projectRoot, 'node_modules', '.cache');
+    cleanableCounts['node_modules_cache'] = existsSync(nodeCachePath) ? getDirectorySize(nodeCachePath, []) : 0;
+
+    // Cleanable counts — Database records
     const { count: oldLogs } = await db.from('logs').select('*', { count: 'exact', head: true }).lt('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
     cleanableCounts['old_logs_30d'] = oldLogs || 0;
     const { count: oldReadEvents } = await db.from('events').select('*', { count: 'exact', head: true }).eq('is_read', true).lt('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
@@ -137,7 +151,28 @@ export async function POST(request: NextRequest) {
       for (const target of targets) {
         try {
           let count = 0;
-          if (target === 'old_logs_30d') {
+          // Server temp file cleanup
+          if (target === 'tmp_tectonic') {
+            const p = '/tmp/tectonic';
+            if (existsSync(p)) { const s = getDirectorySize(p, []); rmSync(p, { recursive: true, force: true }); count = s; }
+          } else if (target === 'tmp_head_tar') {
+            const p = '/tmp/HEAD.tar';
+            if (existsSync(p)) { const s = statSync(p).size; rmSync(p, { force: true }); count = s; }
+          } else if (target === 'tmp_razkindo_archive') {
+            const p = '/tmp/razkindo-archive';
+            if (existsSync(p)) { const s = getDirectorySize(p, []); rmSync(p, { recursive: true, force: true }); count = s; }
+          } else if (target === 'tmp_my_project') {
+            const p = '/tmp/my-project';
+            if (existsSync(p)) { const s = getDirectorySize(p, []); rmSync(p, { recursive: true, force: true }); count = s; }
+          } else if (target === 'next_cache') {
+            const p = join(process.cwd(), '.next', 'cache');
+            if (existsSync(p)) { const s = getDirectorySize(p, []); rmSync(p, { recursive: true, force: true }); count = s; }
+          } else if (target === 'node_modules_cache') {
+            const p = join(process.cwd(), 'node_modules', '.cache');
+            if (existsSync(p)) { const s = getDirectorySize(p, []); rmSync(p, { recursive: true, force: true }); count = s; }
+          }
+          // Database cleanup
+          else if (target === 'old_logs_30d') {
             const { error } = await db.from('logs').delete().lt('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
             count = error ? -1 : 0;
           } else if (target === 'rejected_finance_requests') {

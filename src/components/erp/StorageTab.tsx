@@ -359,6 +359,14 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
   const isEstimate = quota?.source === 'estimate';
 
   const CLEANUP_OPTIONS = [
+    // Server temp files (safe to delete, auto-recreated)
+    { id: 'tmp_tectonic', label: 'Cache LaTeX (/tmp/tectonic)', description: 'Cache compiler LaTeX — aman dihapus, akan dibuat ulang otomatis', count: cleanable?.tmp_tectonic || 0, icon: <FolderOpen className="w-4 h-4 text-purple-500" />, safe: true },
+    { id: 'tmp_head_tar', label: 'Git Archive (/tmp/HEAD.tar)', description: 'File archive sementara — aman dihapus', count: cleanable?.tmp_head_tar || 0, icon: <FolderOpen className="w-4 h-4 text-gray-500" />, safe: true },
+    { id: 'tmp_razkindo_archive', label: 'Archive Lama (/tmp/razkindo-archive)', description: 'Archive project sementara — aman dihapus', count: cleanable?.tmp_razkindo_archive || 0, icon: <FolderOpen className="w-4 h-4 text-gray-500" />, safe: true },
+    { id: 'tmp_my_project', label: 'Project Temp (/tmp/my-project)', description: 'Project sementara lama — aman dihapus', count: cleanable?.tmp_my_project || 0, icon: <FolderOpen className="w-4 h-4 text-gray-500" />, safe: true },
+    { id: 'next_cache', label: 'Cache Next.js (.next/cache)', description: 'Cache build Next.js — aman dihapus, akan dibuat ulang', count: cleanable?.next_cache || 0, icon: <FolderOpen className="w-4 h-4 text-blue-500" />, safe: true },
+    { id: 'node_modules_cache', label: 'Cache Node (node_modules/.cache)', description: 'Cache dependensi Node — aman dihapus', count: cleanable?.node_modules_cache || 0, icon: <FolderOpen className="w-4 h-4 text-blue-400" />, safe: true },
+    // Database cleanup options
     { id: 'old_logs_30d', label: 'Log Lama (>30 hari)', description: 'Hapus activity log yang lebih dari 30 hari', count: cleanable?.old_logs_30d || 0, icon: <ClipboardList className="w-4 h-4 text-amber-500" />, safe: true },
     { id: 'old_read_events_7d', label: 'Notifikasi Lama (>7 hari)', description: 'Hapus notifikasi yang sudah dibaca & >7 hari', count: cleanable?.old_read_events_7d || 0, icon: <Bell className="w-4 h-4 text-blue-500" />, safe: true },
     { id: 'rejected_finance_requests', label: 'Request Ditolak', description: 'Hapus permintaan finance yang ditolak', count: cleanable?.rejected_finance_requests || 0, icon: <X className="w-4 h-4 text-red-500" />, safe: true },
@@ -760,7 +768,7 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
               return (
                 <div key={id} className="flex items-center justify-between text-sm p-2 bg-muted/50 rounded">
                   <span>{opt?.label}</span>
-                  <Badge variant="secondary">{String(opt?.count || 0)}</Badge>
+                  <Badge variant="secondary">{id.startsWith('tmp_') || id === 'next_cache' || id === 'node_modules_cache' ? formatBytes(opt?.count || 0) : String(opt?.count || 0)}</Badge>
                 </div>
               );
             })}
@@ -1138,7 +1146,7 @@ export default function StorageTab({ queryClient }: { queryClient: QueryClient }
                     <div className="flex items-center gap-2"><p className="text-sm font-medium">{opt.label}</p>{!opt.safe && <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">Semua</Badge>}</div>
                     <p className="text-xs text-muted-foreground truncate">{opt.description}</p>
                   </div>
-                  <Badge variant="secondary" className="text-xs flex-shrink-0">{String(opt.count)} record</Badge>
+                  <Badge variant="secondary" className="text-xs flex-shrink-0">{opt.id.startsWith('tmp_') || opt.id === 'next_cache' || opt.id === 'node_modules_cache' ? formatBytes(opt.count) : `${opt.count} record`}</Badge>
                 </div>
               );
             })}
