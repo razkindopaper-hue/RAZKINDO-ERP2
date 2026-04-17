@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
           const latency = Math.round(performance.now() - start);
           return {
             name: 'REST API',
-            status: error ? 'disconnected' : latency > 2000 ? 'degraded' : 'connected',
+            status: error ? 'disconnected' as const : latency > 2000 ? 'degraded' as const : 'connected' as const,
             latencyMs: latency,
             detail: error ? `Error: ${error.message?.slice(0, 60)}` : `${count || 0} settings`,
           };
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
         const latency = Math.round(performance.now() - start);
         return {
           name: 'Tabel Kritis',
-          status: tablesOk === criticalTables.length ? 'connected' : tablesOk > 0 ? 'degraded' : 'disconnected',
+          status: tablesOk === criticalTables.length ? 'connected' as const : tablesOk > 0 ? 'degraded' as const : 'disconnected' as const,
           latencyMs: latency,
           detail: `${tablesOk}/${criticalTables.length} tabel dapat diakses`,
         };
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
           const latency = Math.round(performance.now() - start);
           return {
             name: 'Prisma Direct',
-            status: latency > 3000 ? 'degraded' : 'connected',
+            status: latency > 3000 ? 'degraded' as const : 'connected' as const,
             latencyMs: latency,
             detail: 'Koneksi langsung PostgreSQL OK',
           };

@@ -77,7 +77,6 @@ export async function POST(request: NextRequest) {
 
     // Build all update promises
     let synced = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const syncPromises: any[] = [];
     for (const r of activeReceivables || []) {
       const tx = arTxMap[r.transaction_id];

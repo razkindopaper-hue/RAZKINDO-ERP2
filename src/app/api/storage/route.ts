@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { enforceSuperAdmin } from '@/lib/require-auth';
-import { readdir, stat, existsSync, rmSync } from 'fs';
+import { readdir, stat } from 'fs/promises';
+import { existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 

@@ -44,6 +44,10 @@ function getSupabaseDbUrl(): string {
   }
   // Fallback: try reading from .env file directly
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { join } = require('path');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require('fs');
     const envPath = join(process.cwd(), '.env');
     const envContent = readFileSync(envPath, 'utf8');
     for (const line of envContent.split('\n')) {

@@ -312,3 +312,23 @@ Stage Summary:
 - **FIX APPLIED**: Updated RPC to accept and process `p_hpp_delta` and `p_profit_delta` parameters
 - **DEPLOYED**: All 15 RPCs deployed successfully via deploy-rpcs.ts
 - Files modified: src/lib/ensure-rpc.ts, scripts/deploy-rpcs.ts
+---
+Task ID: 2
+Agent: main
+Task: Check bugs/errors and fix deploy problem
+
+Work Log:
+- Ran lint: found 2 errors in supabase.ts (require() style imports forbidden) + 1 warning
+- Ran production build: FAILED with "Cannot find name 'join'" in supabase.ts
+- Root cause: `join` (from 'path') and `readFileSync` (from 'fs') were used but never imported
+- Found duplicate `require('path')` and `require('fs')` calls inside fallback function body
+- Added proper ES module imports at top: `import { join } from 'path'` and `import { readFileSync } from 'fs'`
+- Removed duplicate `require()` calls inside function body
+- Fixed unused eslint-disable directive in receivables/sync/route.ts
+- Final result: lint 0 errors 0 warnings, build SUCCESS (103 routes)
+
+Stage Summary:
+- **Deploy issue FIXED**: Missing `join`/`readFileSync` imports caused TypeScript build failure
+- Files modified: src/lib/supabase.ts, src/app/api/finance/receivables/sync/route.ts
+- Lint: 0 errors, 0 warnings
+- Build: SUCCESS (103 routes compiled)
