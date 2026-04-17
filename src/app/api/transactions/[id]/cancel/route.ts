@@ -214,12 +214,20 @@ export async function POST(
       }
 
       // Reverse pool balances from payments (only for sale transactions)
+      // POOL BALANCE FIX: Only reverse pool balances for payments that actually went to
+      // brankas/bank (cash_box_id or bank_account_id is set). Payments from courier cash
+      // collection don't have pool balance entries to reverse, since pool balances are
+      // updated at handover time (when money enters brankas), not at collection time.
       if (txCamel.type === 'sale') {
         let totalHppToReverse = 0;
         let totalProfitToReverse = 0;
         for (const payment of (payments || [])) {
-          totalHppToReverse += Number(payment.hpp_portion) || 0;
-          totalProfitToReverse += Number(payment.profit_portion) || 0;
+          // Only reverse pool for payments deposited to brankas/bank
+          // Skip courier cash collection payments (no cash_box_id or bank_account_id)
+          if (payment.cash_box_id || payment.bank_account_id) {
+            totalHppToReverse += Number(payment.hpp_portion) || 0;
+            totalProfitToReverse += Number(payment.profit_portion) || 0;
+          }
         }
 
         if (totalHppToReverse > 0) {
@@ -235,6 +243,7 @@ export async function POST(
       }
 
       // Reverse CourierCash if this was a cash delivery
+      // Also reverse hppPending/profitPending since the collected cash is being cancelled
       if (txCamel.deliveredAt && txCamel.courierId && txCamel.paymentMethod === 'cash' && txCamel.type === 'sale') {
         const { data: courierCash } = await db
           .from('courier_cash')
@@ -244,11 +253,26 @@ export async function POST(
           .maybeSingle();
         if (courierCash) {
           const reverseAmount = Math.min(txCamel.paidAmount || 0, courierCash.balance);
+          // Calculate hpp/profit portions to reverse from the payment records
+          let courierHppToReverse = 0;
+          let courierProfitToReverse = 0;
+          for (const payment of (payments || [])) {
+            // Only count payments without cash_box_id/bank_account_id (courier cash collection)
+            if (!payment.cash_box_id && !payment.bank_account_id) {
+              courierHppToReverse += Number(payment.hpp_portion) || 0;
+              courierProfitToReverse += Number(payment.profit_portion) || 0;
+            }
+          }
+          courierHppToReverse = Math.min(courierHppToReverse, courierCash.hpp_pending || 0);
+          courierProfitToReverse = Math.min(courierProfitToReverse, courierCash.profit_pending || 0);
+
           await db
             .from('courier_cash')
             .update({
               balance: courierCash.balance - reverseAmount,
-              total_collected: courierCash.total_collected - reverseAmount
+              total_collected: courierCash.total_collected - reverseAmount,
+              hpp_pending: Math.max(0, (courierCash.hpp_pending || 0) - courierHppToReverse),
+              profit_pending: Math.max(0, (courierCash.profit_pending || 0) - courierProfitToReverse),
             })
             .eq('id', courierCash.id);
         }

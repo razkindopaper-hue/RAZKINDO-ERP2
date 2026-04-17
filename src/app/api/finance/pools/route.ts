@@ -78,15 +78,25 @@ export async function GET(request: NextRequest) {
     const investorFund = getVal('pool_investor_fund');
 
     // Get actual payment sums from DB (ground truth) via Prisma RPC
+    // Only counts payments deposited to brankas/bank (not courier cash)
     const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
     let actualHppSum = sumsData?.hppPaidTotal || 0;
     let actualProfitSum = sumsData?.profitPaidTotal || 0;
     if (sumsError) {
       console.error('[POOL] RPC get_payment_pool_sums failed, falling back to direct query:', sumsError.message);
-      const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion');
-      actualHppSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
-      actualProfitSum = fallback?.reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
+      // Fallback: only sum payments deposited to brankas/bank
+      const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
+      actualHppSum = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
+      actualProfitSum = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
     }
+
+    // Get courier cash pending HPP/profit (money still held by couriers, not yet in brankas)
+    const { data: courierCashRecords } = await db.from('courier_cash').select('balance, hpp_pending, profit_pending');
+    const courierSums = (courierCashRecords || []).reduce((acc: { balance: number; hppPending: number; profitPending: number }, cc: any) => ({
+      balance: acc.balance + (cc.balance || 0),
+      hppPending: acc.hppPending + (cc.hpp_pending || 0),
+      profitPending: acc.profitPending + (cc.profit_pending || 0),
+    }), { balance: 0, hppPending: 0, profitPending: 0 });
 
     return NextResponse.json({
       hppPaidBalance,
@@ -96,6 +106,10 @@ export async function GET(request: NextRequest) {
       actualHppSum,
       actualProfitSum,
       actualTotal: actualHppSum + actualProfitSum,
+      // HPP/profit still held by couriers (not yet in brankas)
+      courierHppPending: courierSums?.hppPending || 0,
+      courierProfitPending: courierSums?.profitPending || 0,
+      courierCashTotal: courierSums?.balance || 0,
     });
   } catch (error) {
     console.error('Get pool balances error:', error);
@@ -243,15 +257,18 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === 'sync_from_payments') {
-      // Sync pool balances from actual payment sums
+      // Sync pool balances from actual payment sums (only brankas/bank payments)
+      // POOL BALANCE FIX: Exclude courier cash collection payments (no cashBoxId/bankAccountId)
+      // since those are tracked in courier_cash and will be added to pool at handover time.
       const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
       let newHpp = sumsData?.hppPaidTotal || 0;
       let newProfit = sumsData?.profitPaidTotal || 0;
       if (sumsError) {
         console.error('[POOL SYNC] RPC failed, falling back to direct query:', sumsError.message);
-        const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion');
-        newHpp = fallback?.reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
-        newProfit = fallback?.reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
+        // Fallback: only sum payments deposited to brankas/bank
+        const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
+        newHpp = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
+        newProfit = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
       }
 
       const roundedHpp = Math.round(newHpp);

@@ -630,6 +630,12 @@ const rpcHandlers: Record<string, RpcFunction> = {
       // CRITICAL FIX: Query actual payments table for ground truth,
       // NOT the settings table (which would be self-referencing).
       // This provides the actualHppSum/actualProfitSum comparison values.
+      //
+      // POOL BALANCE FIX: Only count payments that went to brankas/bank
+      // (have cashBoxId or bankAccountId set). Payments from courier cash
+      // collection (no cashBoxId/bankAccountId) should NOT be counted here
+      // because those are tracked separately in courier_cash.hppPending/profitPending
+      // and will be added to the pool when the courier deposits (setor ke brankas).
       const result = await prisma.payment.aggregate({
         _sum: {
           hppPortion: true,
@@ -639,6 +645,11 @@ const rpcHandlers: Record<string, RpcFunction> = {
           transaction: {
             type: 'sale',
           },
+          // Only count payments deposited to brankas/bank
+          OR: [
+            { cashBoxId: { not: null } },
+            { bankAccountId: { not: null } },
+          ],
         },
       });
 

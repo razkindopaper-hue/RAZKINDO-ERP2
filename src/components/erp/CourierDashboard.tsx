@@ -258,6 +258,11 @@ export default function CourierDashboard() {
                     </>
                   )}
                 </div>
+                {cashBalance?.current > 0 && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    ⚠️ Cash belum disetor ke brankas — harap segera setor!
+                  </p>
+                )}
               </div>
             </div>
             <Button
