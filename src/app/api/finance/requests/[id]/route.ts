@@ -442,6 +442,7 @@ async function createPurchaseTransaction(existingRequest: any, data: any): Promi
   const isPaid = data.processType === 'pay_now';
 
   const transactionData = toSnakeCase({
+    id: generateId(),
     type: 'purchase',
     invoiceNo,
     unitId: existingRequest.unit_id,
@@ -460,7 +461,7 @@ async function createPurchaseTransaction(existingRequest: any, data: any): Promi
   for (const item of items) {
     const stockQty = item.qtyInSubUnit ?? item.qty;
     await db.from('transaction_items').insert(toSnakeCase({
-      transactionId: transaction.id, productId: item.productId, productName: item.productName,
+      id: generateId(), transactionId: transaction.id, productId: item.productId, productName: item.productName,
       qty: item.qty, qtyInSubUnit: stockQty, qtyUnitType: item.qtyUnitType || 'sub',
       price: item.price || item.hpp || 0, hpp: item.hpp || item.price || 0,
       subtotal: item.qty * (item.price || item.hpp || 0), profit: 0,
@@ -483,6 +484,7 @@ async function createPurchaseTransaction(existingRequest: any, data: any): Promi
 async function createExpenseTransaction(existingRequest: any, data: any): Promise<string> {
   const invoiceNo = await generateInvoiceNo('expense', 'EXP');
   const transactionData = toSnakeCase({
+    id: generateId(),
     type: 'expense', invoiceNo, unitId: existingRequest.unit_id, createdById: data.processedById,
     total: existingRequest.amount, paidAmount: existingRequest.amount, remainingAmount: 0,
     totalHpp: 0, totalProfit: 0, hppPaid: 0, profitPaid: 0, hppUnpaid: 0, profitUnpaid: 0,

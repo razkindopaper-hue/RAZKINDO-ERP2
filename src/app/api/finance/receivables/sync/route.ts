@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { toSnakeCase } from '@/lib/supabase-helpers';
+import { toSnakeCase, generateId } from '@/lib/supabase-helpers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       const { data: customer } = await db.from('customers').select('name, phone').eq('id', tx.customer_id).maybeSingle();
 
       const insertData = toSnakeCase({
-        transactionId: tx.id,
+        id: generateId(), transactionId: tx.id,
         customerName: customer?.name || 'Walk-in',
         customerPhone: customer?.phone || '',
         totalAmount: tx.total,

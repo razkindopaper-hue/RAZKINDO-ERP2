@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { enforceFinanceRole } from '@/lib/require-auth';
-import { rowsToCamelCase, toCamelCase, toSnakeCase, createLog } from '@/lib/supabase-helpers';
+import { rowsToCamelCase, toCamelCase, toSnakeCase, createLog, generateId } from '@/lib/supabase-helpers';
 
 export async function GET(request: NextRequest) {
   try {
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
       }
 
       const insertData = toSnakeCase({
-        transactionId: data.transactionId,
+        id: generateId(), transactionId: data.transactionId,
         customerName: transaction.customer?.name || 'Walk-in',
         customerPhone: transaction.customer?.phone || '',
         totalAmount: transaction.total,

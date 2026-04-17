@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { toCamelCase, toSnakeCase, createLog, createEvent } from '@/lib/supabase-helpers';
+import { toCamelCase, toSnakeCase, createLog, createEvent, generateId } from '@/lib/supabase-helpers';
 import { wsDeliveryUpdate } from '@/lib/ws-dispatch';
 import { atomicUpdatePoolBalance } from '@/lib/atomic-ops';
 
@@ -72,7 +72,7 @@ export async function PATCH(request: NextRequest) {
       const profitPortion = transaction.total > 0 ? (transaction.total_profit / transaction.total) * amount : 0;
 
       const payData = toSnakeCase({
-        transactionId, receivedById: courierId, amount, paymentMethod,
+        id: generateId(), transactionId, receivedById: courierId, amount, paymentMethod,
         referenceNo: referenceNo || null, notes: `Pembayaran saat pengiriman oleh ${courier.name}`,
         hppPortion, profitPortion,
       });

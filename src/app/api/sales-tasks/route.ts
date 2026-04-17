@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { enforceSuperAdmin } from '@/lib/require-auth';
-import { rowsToCamelCase, toCamelCase, toSnakeCase } from '@/lib/supabase-helpers';
+import { rowsToCamelCase, toCamelCase, toSnakeCase, generateId } from '@/lib/supabase-helpers';
 import { wsTaskUpdate } from '@/lib/ws-dispatch';
 
 export async function GET(request: NextRequest) {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     if (!assignedUser.is_active || assignedUser.status !== 'approved') return NextResponse.json({ error: 'Sales yang dipilih tidak aktif' }, { status: 400 });
 
     const insertData = toSnakeCase({
-      title: title.trim(), description: description?.trim() || null, type: type || 'general', priority: priority || 'normal',
+      id: generateId(), title: title.trim(), description: description?.trim() || null, type: type || 'general', priority: priority || 'normal',
       assignedToId, assignedById: authResult.userId, status: 'pending', dueDate: dueDate ? new Date(dueDate).toISOString() : null,
     });
 

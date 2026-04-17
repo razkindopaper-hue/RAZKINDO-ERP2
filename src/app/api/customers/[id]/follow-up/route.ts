@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
-import { toCamelCase, rowsToCamelCase, createLog } from '@/lib/supabase-helpers';
+import { toCamelCase, rowsToCamelCase, createLog, generateId } from '@/lib/supabase-helpers';
 import { verifyAuthUser } from '@/lib/token';
 import { wsCustomerUpdate } from '@/lib/ws-dispatch';
 
@@ -99,6 +99,7 @@ export async function POST(
     const { data: followUp } = await db
       .from('customer_follow_ups')
       .insert({
+        id: generateId(),
         customer_id: id,
         type,
         note: note.trim(),

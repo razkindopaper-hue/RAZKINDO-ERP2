@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { rowsToCamelCase, toSnakeCase, createLog, createEvent, toCamelCase as toCamel } from '@/lib/supabase-helpers';
+import { rowsToCamelCase, toSnakeCase, createLog, createEvent, toCamelCase as toCamel, generateId } from '@/lib/supabase-helpers';
 import { enforceFinanceRole } from '@/lib/require-auth';
 
 export async function GET(request: NextRequest) {
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     const requestById = authUserId;
 
     const frData = toSnakeCase({
-      type: 'salary', requestById, unitId: data.unitId,
+      id: generateId(), type: 'salary', requestById, unitId: data.unitId,
       amount: totalAmount, description, notes: data.notes, status: 'pending',
     });
     const { data: financeRequest, error: frError } = await db.from('finance_requests').insert(frData).select().single();
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     // Create SalaryPayment
     const salaryData = toSnakeCase({
-      userId: data.userId, periodStart: new Date(data.periodStart).toISOString(), periodEnd: new Date(data.periodEnd).toISOString(),
+      id: generateId(), userId: data.userId, periodStart: new Date(data.periodStart).toISOString(), periodEnd: new Date(data.periodEnd).toISOString(),
       baseSalary: data.baseSalary, transportAllowance: data.transportAllowance || 0, mealAllowance: data.mealAllowance || 0,
       overtimePay: data.overtimePay || 0, incentive: data.incentive || 0, otherAllowance: data.otherAllowance || 0, bonus: data.bonus || 0,
       bpjsTk: data.bpjsTk || 0, bpjsKs: data.bpjsKs || 0, pph21: data.pph21 || 0,

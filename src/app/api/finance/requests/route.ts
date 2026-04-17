@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { rowsToCamelCase, toSnakeCase, createLog, createEvent, toCamelCase } from '@/lib/supabase-helpers';
+import { rowsToCamelCase, toSnakeCase, createLog, createEvent, toCamelCase, generateId } from '@/lib/supabase-helpers';
 import { enforceFinanceRole } from '@/lib/require-auth';
 import { validateBody, validateQuery, financeRequestSchemas } from '@/lib/validators';
 
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     const requestById = authUserId;
 
     const insertData = toSnakeCase({
-      type: data.type,
+      id: generateId(), type: data.type,
       requestById,
       unitId: data.unitId,
       amount: data.amount,

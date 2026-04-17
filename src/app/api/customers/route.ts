@@ -209,6 +209,7 @@ export async function POST(request: NextRequest) {
     const { data: customer } = await db
       .from('customers')
       .insert({
+        id: generateId(),
         name: data.name,
         phone: data.phone,
         email: data.email,

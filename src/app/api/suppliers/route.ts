@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
-import { toCamelCase, rowsToCamelCase, createLog } from '@/lib/supabase-helpers';
+import { toCamelCase, rowsToCamelCase, createLog, generateId } from '@/lib/supabase-helpers';
 import { verifyAuthUser } from '@/lib/token';
 import { validateBody, validateQuery, supplierSchemas, commonSchemas } from '@/lib/validators';
 
@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
     const { data: supplier } = await db
       .from('suppliers')
       .insert({
+        id: generateId(),
         name: data.name,
         phone: data.phone,
         email: data.email,

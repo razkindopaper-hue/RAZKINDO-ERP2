@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { toCamelCase, toSnakeCase } from '@/lib/supabase-helpers';
+import { toCamelCase, toSnakeCase, generateId } from '@/lib/supabase-helpers';
 import { wsTaskUpdate } from '@/lib/ws-dispatch';
 
 export async function POST(
@@ -35,7 +35,7 @@ export async function POST(
 
     // Create report
     const reportData = toSnakeCase({
-      taskId, reportedById: authUserId, status, note, evidence: evidence ?? null,
+      id: generateId(), taskId, reportedById: authUserId, status, note, evidence: evidence ?? null,
     });
     const { data: report, error: reportError } = await db.from('sales_task_reports').insert(reportData).select(`
       *, reported_by:users!reported_by_id(id, name)

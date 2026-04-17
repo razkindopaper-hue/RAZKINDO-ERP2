@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { toCamelCase, toSnakeCase, createLog } from '@/lib/supabase-helpers';
+import { toCamelCase, toSnakeCase, createLog, generateId } from '@/lib/supabase-helpers';
 
 export async function POST(
   request: NextRequest,
@@ -29,7 +29,7 @@ export async function POST(
 
     // 1. Create follow-up
     const followUpData = toSnakeCase({
-      receivableId: id,
+      id: generateId(), receivableId: id,
       type: followUpType,
       note: data.note,
       outcome: data.outcome || null,

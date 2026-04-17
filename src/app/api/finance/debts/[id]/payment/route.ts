@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { enforceFinanceRole } from '@/lib/require-auth';
-import { toCamelCase, rowsToCamelCase, toSnakeCase, createLog } from '@/lib/supabase-helpers';
+import { toCamelCase, rowsToCamelCase, toSnakeCase, createLog, generateId } from '@/lib/supabase-helpers';
 import { atomicUpdateBalance, atomicUpdatePoolBalance } from '@/lib/atomic-ops';
 import { wsFinanceUpdate } from '@/lib/ws-dispatch';
 
@@ -87,7 +87,7 @@ export async function POST(
 
     // Create payment record
     const paymentData = toSnakeCase({
-      debtId: id,
+      id: generateId(), debtId: id,
       amount,
       paymentSource,
       bankAccountId: bankAccountId || null,

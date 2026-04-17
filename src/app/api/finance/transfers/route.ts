@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { enforceFinanceRole } from '@/lib/require-auth';
-import { rowsToCamelCase, toSnakeCase, createLog, toCamelCase } from '@/lib/supabase-helpers';
+import { rowsToCamelCase, toSnakeCase, createLog, toCamelCase, generateId } from '@/lib/supabase-helpers';
 import { wsFinanceUpdate } from '@/lib/ws-dispatch';
 
 export async function GET(request: NextRequest) {
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     const insertData = toSnakeCase({
-      type: data.type, fromBankAccountId, toBankAccountId, fromCashBoxId, toCashBoxId,
+      id: generateId(), type: data.type, fromBankAccountId, toBankAccountId, fromCashBoxId, toCashBoxId,
       amount: data.amount, description: data.description, referenceNo: data.referenceNo, status: 'pending',
     });
 

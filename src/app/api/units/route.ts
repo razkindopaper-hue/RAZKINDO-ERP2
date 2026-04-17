@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
-import { rowsToCamelCase, toCamelCase } from '@/lib/supabase-helpers';
+import { rowsToCamelCase, toCamelCase, generateId } from '@/lib/supabase-helpers';
 import { createLog } from '@/lib/supabase-helpers';
 import { verifyAuthUser } from '@/lib/token';
 
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     const { data: unit } = await db
       .from('units')
-      .insert({ name, address, phone })
+      .insert({ id: generateId(), name, address, phone })
       .select()
       .single();
 
