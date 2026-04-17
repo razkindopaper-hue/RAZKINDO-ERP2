@@ -15,12 +15,12 @@ export async function GET(
     const { invoiceNo } = await params;
 
     // Look up transaction by invoice_no with related data
-    const { data: transaction, error } = await db
+    const result = await db
       .from('transactions')
       .select(`
         id, type, invoice_no, total, paid_amount, remaining_amount,
         payment_method, status, payment_status, due_date,
-        transaction_date, delivery_address, notes,
+        transaction_date, deliveryAddress, notes,
         courier_commission, delivery_distance,
         customer:customers(id, name, phone, address),
         created_by:users!created_by_id(name),
@@ -30,9 +30,86 @@ export async function GET(
       .eq('invoice_no', invoiceNo)
       .single();
 
+    console.log('[PAYMENT-DEBUG] invoiceNo:', invoiceNo, 'error:', JSON.stringify(result.error), 'data:', !!result.data, 'status:', result.status);
+
+    const { data: transaction, error } = result;
+
     if (error || !transaction) {
+      // Prisma fallback for resilience
+      console.log('[PAYMENT-DEBUG] Supabase failed, trying Prisma fallback...');
+      try {
+        const { prisma } = await import('@/lib/supabase');
+        const prismaTx = await prisma.transaction.findUnique({
+          where: { invoiceNo },
+          include: {
+            customer: { select: { id: true, name: true, phone: true, address: true } },
+            createdBy: { select: { name: true } },
+            unit: { select: { name: true } },
+            items: {
+              include: { product: { select: { name: true } } }
+            },
+          },
+        });
+        if (prismaTx) {
+          console.log('[PAYMENT-DEBUG] Prisma fallback found transaction:', prismaTx.id);
+          // Continue with Prisma data - convert to expected format
+          const proofsResult = await prisma.paymentProof.findMany({
+            where: { transactionId: prismaTx.id },
+            orderBy: { uploadedAt: 'desc' },
+          });
+          const proofs = proofsResult.map((p: any) => ({
+            id: p.id,
+            transaction_id: p.transactionId,
+            invoice_no: p.invoiceNo,
+            file_url: p.fileUrl,
+            file_name: p.fileName,
+            uploaded_at: p.uploadedAt.toISOString(),
+            viewed: p.viewed,
+            created_at: p.createdAt.toISOString(),
+          }));
+          const transactionCamel = {
+            id: prismaTx.id,
+            type: prismaTx.type,
+            invoiceNo: prismaTx.invoiceNo,
+            total: Number(prismaTx.total),
+            paidAmount: Number(prismaTx.paidAmount),
+            remainingAmount: Number(prismaTx.remainingAmount),
+            paymentMethod: prismaTx.paymentMethod,
+            status: prismaTx.status,
+            paymentStatus: prismaTx.paymentStatus,
+            dueDate: prismaTx.dueDate?.toISOString() || null,
+            transactionDate: prismaTx.transactionDate?.toISOString() || null,
+            deliveryAddress: prismaTx.deliveryAddress,
+            notes: prismaTx.notes,
+            courierCommission: Number(prismaTx.courierCommission || 0),
+            deliveryDistance: prismaTx.deliveryDistance,
+            createdBy: prismaTx.createdBy ? { name: prismaTx.createdBy.name } : null,
+            customer: prismaTx.customer ? { id: prismaTx.customer.id, name: prismaTx.customer.name, phone: prismaTx.customer.phone, address: prismaTx.customer.address } : null,
+            unit: prismaTx.unit ? { name: prismaTx.unit.name } : null,
+            items: (prismaTx.items || []).map((i: any) => ({
+              id: i.id,
+              productId: i.productId,
+              productName: i.productName,
+              qty: Number(i.qty),
+              price: Number(i.price),
+              subtotal: Number(i.subtotal),
+              qtyInSubUnit: Number(i.qtyInSubUnit || 0),
+              qtyUnitType: i.qtyUnitType || 'sub',
+              product: i.product ? { name: i.product.name } : null,
+            })),
+          };
+          const alreadyPaid = prismaTx.paymentStatus === 'paid';
+          return NextResponse.json({
+            transaction: transactionCamel,
+            proofs: proofs,
+            ...(alreadyPaid ? { alreadyPaid: true } : {}),
+          });
+        }
+      } catch (prismaErr) {
+        console.error('[PAYMENT-DEBUG] Prisma fallback also failed:', prismaErr);
+      }
       return NextResponse.json(
-        { error: 'Transaksi tidak ditemukan' },
+        { error: 'Transaksi tidak ditemukan', debug: error?.message || 'no error object' },
         { status: 404 }
       );
     }

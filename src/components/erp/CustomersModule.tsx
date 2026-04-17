@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Plus, Edit, Trash2, Phone, Mail, AlertOctagon, RotateCcw, X, ShoppingBag, Loader2, ChevronRight, Clock, Link2, Copy, Check } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, Phone, Mail, AlertOctagon, RotateCcw, X, ShoppingBag, Loader2, ChevronRight, Clock, Link2, Copy, Check, QrCode } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUnitStore } from '@/stores/unit-store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

@@ -153,7 +153,7 @@ export async function PATCH(
     const updateData: Record<string, any> = {
       courier_id: (data.courierId && data.courierId !== 'none') ? data.courierId : null,
       notes: data.notes,
-      delivery_address: data.deliveryAddress,
+      deliveryAddress: data.deliveryAddress,
       due_date: dueDate
     };
 

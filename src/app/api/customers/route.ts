@@ -5,6 +5,45 @@ import { verifyAuthUser } from '@/lib/token';
 import { wsCustomerUpdate } from '@/lib/ws-dispatch';
 import { validateBody, validateQuery, customerSchemas, commonSchemas } from '@/lib/validators';
 
+/**
+ * Generate a unique customer PWA code.
+ * Format: CUST + 4-digit sequential number (e.g., CUST0001)
+ * Checks for uniqueness against the database.
+ */
+async function generateCustomerCode(): Promise<string> {
+  // Find the highest existing CUST code number
+  const { data: existingCodes } = await db
+    .from('customers')
+    .select('code')
+    .like('code', 'CUST%')
+    .order('code', { ascending: false })
+    .limit(1);
+
+  let nextNum = 1;
+  if (existingCodes && existingCodes.length > 0 && existingCodes[0].code) {
+    const match = existingCodes[0].code.match(/CUST(\d+)/);
+    if (match) {
+      nextNum = parseInt(match[1], 10) + 1;
+    }
+  }
+
+  // Try up to 10 times in case of race condition
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const code = `CUST${String(nextNum).padStart(4, '0')}`;
+    // Verify uniqueness
+    const { data: conflict } = await db
+      .from('customers')
+      .select('id')
+      .eq('code', code)
+      .maybeSingle();
+    if (!conflict) return code;
+    nextNum++;
+  }
+
+  // Fallback: use timestamp-based code
+  return `CUST${Date.now().toString(36).toUpperCase()}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const authUserId = await verifyAuthUser(request.headers.get('authorization'));
@@ -164,6 +203,9 @@ export async function POST(request: NextRequest) {
     }
     // ========== END DUPLICATE CHECK ==========
 
+    // Auto-generate PWA code for the new customer
+    const pwaCode = await generateCustomerCode();
+
     const { data: customer } = await db
       .from('customers')
       .insert({
@@ -175,6 +217,7 @@ export async function POST(request: NextRequest) {
         notes: data.notes,
         distance: data.distance || 'near',
         assigned_to_id: data.assignedToId || null,
+        code: pwaCode,
         cashback_type: data.cashbackType || 'percentage',
         cashback_value: data.cashbackValue || 0,
       })

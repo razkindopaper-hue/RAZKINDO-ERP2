@@ -76,7 +76,7 @@ export async function GET(
     while (true) {
       const result = await db
         .from('products')
-        .select('id, name, sku, unit, sub_unit, conversion_rate, selling_price, global_stock, min_stock, is_active, stock_type, image_url')
+        .select('id, name, sku, unit, subUnit, conversionRate, selling_price, global_stock, min_stock, is_active, stock_type, image_url')
         .eq('is_active', true)
         .order('name', { ascending: true })
         .range(pwaPage * PWA_BATCH, (pwaPage + 1) * PWA_BATCH - 1);

@@ -541,7 +541,7 @@ export async function POST(request: NextRequest) {
               payment_status: paymentStatus,
               due_date: data.dueDate ? new Date(data.dueDate).toISOString() : null,
               notes: data.notes,
-              delivery_address: data.deliveryAddress,
+              deliveryAddress: data.deliveryAddress,
               delivered_at: isSelfDelivered ? new Date().toISOString() : null,
               transaction_date: txDate.toISOString()
             })
