@@ -183,21 +183,28 @@ $$;`,
   {
     name: 'atomic_add_courier_cash',
     sql: `CREATE OR REPLACE FUNCTION atomic_add_courier_cash(
-      p_courier_id uuid, p_unit_id uuid, p_amount numeric DEFAULT 0, p_delta numeric DEFAULT 0
+      p_courier_id uuid, p_unit_id uuid, p_amount numeric DEFAULT 0, p_delta numeric DEFAULT 0,
+      p_hpp_delta numeric DEFAULT 0, p_profit_delta numeric DEFAULT 0
     ) RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
     DECLARE
       v_delta numeric := COALESCE(p_amount, 0) + COALESCE(p_delta, 0);
+      v_hpp_delta numeric := COALESCE(p_hpp_delta, 0);
+      v_profit_delta numeric := COALESCE(p_profit_delta, 0);
       v_cc_id text;
       v_new_balance numeric;
     BEGIN
-      INSERT INTO courier_cash (id, courier_id, unit_id, balance, total_collected, total_handover)
+      INSERT INTO courier_cash (id, courier_id, unit_id, balance, total_collected, total_handover, hpp_pending, profit_pending)
       VALUES (gen_random_uuid()::text, p_courier_id, p_unit_id, v_delta,
               CASE WHEN v_delta > 0 THEN v_delta ELSE 0 END,
-              CASE WHEN v_delta < 0 THEN ABS(v_delta) ELSE 0 END)
+              CASE WHEN v_delta < 0 THEN ABS(v_delta) ELSE 0 END,
+              CASE WHEN v_hpp_delta > 0 THEN v_hpp_delta ELSE 0 END,
+              CASE WHEN v_profit_delta > 0 THEN v_profit_delta ELSE 0 END)
       ON CONFLICT (courier_id, unit_id) DO UPDATE SET
         balance = courier_cash.balance + v_delta,
         total_collected = courier_cash.total_collected + CASE WHEN v_delta > 0 THEN v_delta ELSE 0 END,
-        total_handover = courier_cash.total_handover + CASE WHEN v_delta < 0 THEN ABS(v_delta) ELSE 0 END
+        total_handover = courier_cash.total_handover + CASE WHEN v_delta < 0 THEN ABS(v_delta) ELSE 0 END,
+        hpp_pending = courier_cash.hpp_pending + CASE WHEN v_delta > 0 THEN v_hpp_delta ELSE 0 END,
+        profit_pending = courier_cash.profit_pending + CASE WHEN v_delta > 0 THEN v_profit_delta ELSE 0 END
       RETURNING id, balance INTO v_cc_id, v_new_balance;
       RETURN v_new_balance;
     END;

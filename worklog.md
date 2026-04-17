@@ -291,3 +291,24 @@ Stage Summary:
 - Complete flow: Courier receives cash → courier_cash tracks it (with hpp/profit portions) → Courier deposits (setor ke brankas) → pool balances updated
 - Backward compatible: existing data with hppPending=0 works correctly (pool already counted those amounts)
 - Files modified: prisma/schema.prisma, src/lib/supabase.ts, src/app/api/courier/deliver/route.ts, src/app/api/courier/handover/route.ts, src/app/api/transactions/mark-lunas/route.ts, src/app/api/transactions/[id]/cancel/route.ts, src/app/api/finance/pools/route.ts, src/components/erp/CourierDashboard.tsx
+---
+Task ID: 1
+Agent: main
+Task: Investigate courier cash flow — check if cash received by courier is held first then deposited to brankas
+
+Work Log:
+- Searched all courier-related files (API routes, components, RPC definitions, Prisma schema)
+- Read courier deliver route, handover route, dashboard route, CourierDashboard component
+- Read Prisma schema for CourierCash, CourierHandover, CashBox models
+- Read RPC definitions in ensure-rpc.ts and deploy-rpcs.ts
+- Traced full cash flow: courier delivers → cash collected → courier_cash.balance increased → handover → brankas credited
+
+Stage Summary:
+- **Flow is CORRECT**: Cash is properly held by courier first (courier_cash.balance), then deposited to brankas (cash_boxes.balance) via handover
+- **CRITICAL BUG FOUND**: `atomic_add_courier_cash` RPC was missing `p_hpp_delta` and `p_profit_delta` parameters
+  - The deliver route was passing these params but the RPC silently ignored them
+  - This caused `courier_cash.hpp_pending` and `courier_cash.profit_pending` to NEVER be updated
+  - As a result, pool balances (pool_hpp_paid_balance, pool_profit_paid_balance) were never correctly updated during handover
+- **FIX APPLIED**: Updated RPC to accept and process `p_hpp_delta` and `p_profit_delta` parameters
+- **DEPLOYED**: All 15 RPCs deployed successfully via deploy-rpcs.ts
+- Files modified: src/lib/ensure-rpc.ts, scripts/deploy-rpcs.ts
