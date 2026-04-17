@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     let target: any = null;
     if (period === 'month') {
-      const { data: salesTarget } = await db.from('sales_targets').select(`*, user:users!user_id(id, name, email)`).eq('user_id', salesId).eq('period', 'monthly').eq('year', now.getFullYear()).eq('month', now.getMonth() + 1).eq('status', 'active').maybeSingle();
+      const { data: salesTarget } = await db.from('SalesTarget').select(`*, user:users!user_id(id, name, email)`).eq('user_id', salesId).eq('period', 'monthly').eq('year', now.getFullYear()).eq('month', now.getMonth() + 1).eq('status', 'active').maybeSingle();
       if (salesTarget) {
         const achievedAmount = personalStats.totalSales;
         const achievedPercentage = salesTarget.target_amount > 0 ? Math.round((achievedAmount / salesTarget.target_amount) * 100) : 0;

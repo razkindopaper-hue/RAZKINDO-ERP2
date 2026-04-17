@@ -531,3 +531,19 @@ Stage Summary:
 - **Target sales API /api/sales/targets**: Removed role='sales' restriction, now allows sales, admin, super_admin, keuangan roles.
 - **DashboardModule.tsx target dialog**: Added targetQuarter state, quarter selector for quarterly period (Q1-Q4), updated mutation to pass quarter, changed label from "Pilih sales" to "Pilih user", expanded user filter to include more roles.
 - All changes compile cleanly (tsc --noEmit passes).
+---
+Task ID: 5
+Agent: Main
+Task: Fix SalesTarget table name mismatch in Supabase REST API
+
+Work Log:
+- Discovered dev.log error: "Could not find the table 'public.sales_targets'" with hint "Perhaps you meant 'public.SalesTarget'"
+- Queried actual PostgreSQL table: SELECT tablename → "SalesTarget" (PascalCase, because Prisma model has no @@map directive)
+- Replaced all db.from('sales_targets') → db.from('SalesTarget') in 4 API route files
+- Added @@map("SalesTarget") to SalesTarget model in prisma/schema.prisma for explicitness
+- Verified TypeScript compiles cleanly, lint passes
+
+Stage Summary:
+- Root cause: Prisma model `SalesTarget` without @@map creates table as "SalesTarget" in PostgreSQL, but Supabase PostgREST requires exact case match
+- All 9 occurrences across 4 files updated
+- Target sales should now work properly

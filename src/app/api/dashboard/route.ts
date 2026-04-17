@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
       })(),
 
       // Sales targets
-      db.from('sales_targets')
+      db.from('SalesTarget')
         .select('*, user:users!user_id(id, name, role, email)')
         .eq('period', 'monthly')
         .eq('year', currentYear)

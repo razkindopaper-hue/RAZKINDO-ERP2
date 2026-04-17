@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const year = searchParams.get('year');
     const period = searchParams.get('period');
 
-    let query = db.from('sales_targets').select(`
+    let query = db.from('SalesTarget').select(`
       *, user:users!user_id(name, email)
     `).order('year', { ascending: false }).order('created_at', { ascending: false });
 
@@ -69,10 +69,10 @@ export async function POST(request: NextRequest) {
     const finalQuarter = period === 'quarterly' ? (quarter || 0) : 0;
 
     // Check existing
-    const { data: existing } = await db.from('sales_targets').select('id').eq('user_id', userId).eq('period', period).eq('year', year).eq('month', finalMonth).eq('quarter', finalQuarter).maybeSingle();
+    const { data: existing } = await db.from('SalesTarget').select('id').eq('user_id', userId).eq('period', period).eq('year', year).eq('month', finalMonth).eq('quarter', finalQuarter).maybeSingle();
 
     if (existing) {
-      const { data: target, error } = await db.from('sales_targets').update({
+      const { data: target, error } = await db.from('SalesTarget').update({
         target_amount: targetAmount, notes: notes ?? undefined, status: 'active',
       }).eq('id', existing.id).select(`
         *, user:users!user_id(name, email)
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       id: generateId(), userId, period, year, month: finalMonth, quarter: finalQuarter,
       targetAmount, notes: notes ?? null, achievedAmount: 0, status: 'active',
     });
-    const { data: target, error } = await db.from('sales_targets').insert(insertData).select(`
+    const { data: target, error } = await db.from('SalesTarget').insert(insertData).select(`
       *, user:users!user_id(name, email)
     `).single();
     if (error) throw error;
