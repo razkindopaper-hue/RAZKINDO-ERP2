@@ -3,9 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "bash -c 'cd /home/z/my-project/mini-services/event-queue && bun index.ts >> /home/z/my-project/event-queue.log 2>&1 & cd /home/z/my-project && HOSTNAME=0.0.0.0 PORT=3000 NODE_OPTIONS=\"--max-old-space-size=1536\" node .next/standalone/server.js'",
+    "dev": "bash -c 'cd /home/z/my-project/mini-services/event-queue && bun index.ts >> /home/z/my-project/event-queue.log 2>&1 & cd /home/z/my-project && HOSTNAME=0.0.0.0 PORT=3000 next dev --turbopack'",
     "build": "prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_OPTIONS='--max-old-space-size=1536' NODE_ENV=production node .next/standalone/server.js",
+    "start": "HOSTNAME=0.0.0.0 PORT=3000 next start",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

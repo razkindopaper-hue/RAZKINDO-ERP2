@@ -43,21 +43,12 @@ const ChangePasswordDialog = dynamic(() => import('@/components/erp/ChangePasswo
 const PWAInstallPrompt = dynamic(() => import('@/components/PWAInstallPrompt').then(m => ({ default: m.PWAInstallPrompt })), { ssr: false });
 
 // Lazy load heavy hooks to reduce initial module graph
-const useRealtimeSync = () => {
-  const hook = require('@/hooks/use-realtime-sync').useRealtimeSync;
-  return hook();
-};
-const useDynamicFavicon = (url?: string) => {
-  const hook = require('@/hooks/use-dynamic-favicon').useDynamicFavicon;
-  return hook(url);
-};
-const usePushNotification = () => {
-  const hook = require('@/hooks/use-push-notification').usePushNotification;
-  return hook();
-};
-const { apiFetch } = require('@/lib/api-client');
-const { formatDateTime, formatCurrency, getInitials } = require('@/lib/erp-helpers');
-const { cn } = require('@/lib/utils');
+import { useRealtimeSync } from '@/hooks/use-realtime-sync';
+import { useDynamicFavicon } from '@/hooks/use-dynamic-favicon';
+import { usePushNotification } from '@/hooks/use-push-notification';
+import { apiFetch } from '@/lib/api-client';
+import { formatDateTime, formatCurrency, getInitials } from '@/lib/erp-helpers';
+import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Package, ShoppingCart, Truck, DollarSign,
   UserCheck, Users, Settings, LogOut, X, Bell, BellOff, BellRing,

@@ -333,14 +333,8 @@ export async function closeAllPools(): Promise<void> {
 export const poolConfig = TRANSACTION_POOL_CONFIG;
 export const POOL_HEALTH_CHECK_INTERVAL = 30_000;
 
-// Register shutdown handler
-if (typeof process !== 'undefined' && typeof window === 'undefined') {
-  const shutdown = async (signal: string) => {
-    console.log(`[ConnectionPool] Received ${signal}, closing pools...`);
-    await closeAllPools();
-    process.exit(0);
-  };
-
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-}
+// NOTE: SIGTERM/SIGINT handlers removed (BUG-17 fix).
+// These handlers called process.exit(0) which killed the Next.js dev server
+// after ~30 seconds because the sandbox sends periodic SIGTERM signals.
+// Next.js has its own graceful shutdown handling.
+// Call closeAllPools() explicitly if needed during controlled shutdown.

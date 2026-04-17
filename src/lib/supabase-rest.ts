@@ -28,7 +28,16 @@ export const SUPABASE_URL: string = process.env.NEXT_PUBLIC_SUPABASE_URL || 'htt
 export const SUPABASE_ANON_KEY: string = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
 /** Supabase service role key — bypasses all RLS policies, server-side only */
-export const SUPABASE_SERVICE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+export const SUPABASE_SERVICE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY || (() => {
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn(
+      '[Supabase REST] ⚠️ SUPABASE_SERVICE_ROLE_KEY not set or invalid. ' +
+      'Server-side queries will use anon key (RLS enforced). ' +
+      'Set the correct service role key from Supabase Dashboard → Settings → API.'
+    );
+  }
+  return SUPABASE_ANON_KEY;
+})();
 
 // ─────────────────────────────────────────────────────────────────────
 // CLIENT SINGLETON

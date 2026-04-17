@@ -178,7 +178,7 @@ export default function AIChatPanel() {
 
       const res = await fetch('/api/ai/tts?XTransformPort=3000', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${(() => { try { const s = JSON.parse(localStorage.getItem('razkindo-auth') || '{}'); return s?.state?.token || ''; } catch { return ''; } })()}` },
         body: JSON.stringify({ text: cleanText, voice: 'tongtong', speed: 1.0 })
       });
 
@@ -783,16 +783,23 @@ export default function AIChatPanel() {
 
   const renderMessageContent = (content: string) => {
     return content.split('\n').map((line, i) => {
-      let rendered: string = escapeHtml(line).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      // Safe rendering: escape HTML first, then only allow **bold** markdown
+      const escaped = escapeHtml(line);
+      // Split by ** markers, alternate between plain text and bold
+      const parts = escaped.split(/\*\*/);
+      const rendered = parts.map((part, idx) => {
+        if (idx % 2 === 1) return <strong key={idx}>{part}</strong>;
+        return part;
+      });
       if (line.trim().startsWith('•') || line.trim().startsWith('- ')) {
         return (
           <div key={i} className="flex gap-2 ml-1">
             <span className="text-primary mt-0.5">•</span>
-            <span dangerouslySetInnerHTML={{ __html: rendered.replace(/^[•-]\s*/, '') }} />
+            <span>{rendered}</span>
           </div>
         );
       }
-      return <div key={i} dangerouslySetInnerHTML={{ __html: rendered || '&nbsp;' }} />;
+      return <div key={i}>{rendered.length > 0 ? rendered : '\u00A0'}</div>;
     });
   };
 

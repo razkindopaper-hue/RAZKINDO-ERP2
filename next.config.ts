@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // output: 'standalone', // disabled: standalone server crashes, using next dev instead
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -20,8 +20,15 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // Empty turbopack config to acknowledge we're using it
-  turbopack: {},
+  // Turbopack config — resolve aliases for packages with module resolution issues
+  turbopack: {
+    resolveAlias: {
+      // BUG-03 fix: Turbopack can't resolve jspdf/jspdf-autotable dynamic imports.
+      // These aliases force Turbopack to use the CommonJS dist files.
+      'jspdf': 'jspdf/dist/jspdf.umd.min.js',
+      'jspdf-autotable': 'jspdf-autotable/dist/jspdf.plugin.autotable.js',
+    },
+  },
 
   // Webpack config only used when building with --webpack flag
   webpack: (config, { dev, isServer }) => {

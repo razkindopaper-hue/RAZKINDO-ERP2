@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { rowsToCamelCase, toSnakeCase, createLog, createEvent, toCamelCase } from '@/lib/supabase-helpers';
+import { rowsToCamelCase, toSnakeCase, createLog, createEvent, toCamelCase as toCamel } from '@/lib/supabase-helpers';
 import { enforceFinanceRole } from '@/lib/require-auth';
 
 export async function GET(request: NextRequest) {
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     createEvent(db, 'salary_request_created', { salaryId: salary.id, requestId: financeRequest.id, userId: data.userId, userName: userData?.name, amount: totalAmount, period: periodDesc });
     createLog(db, { type: 'activity', userId: requestById, action: 'salary_created', entity: 'salary', entityId: salary.id, payload: JSON.stringify({ userId: data.userId, amount: totalAmount, financeRequestId: financeRequest.id }), message: `Slip gaji dibuat untuk ${userData?.name}: ${totalAmount}` });
 
-    return NextResponse.json({ salary: toCamelCase(salary) });
+    return NextResponse.json({ salary: toCamel(salary) });
   } catch (error) {
     console.error('Create salary error:', error);
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });

@@ -35,7 +35,8 @@ export async function wsEmit(options: WSEmitOptions): Promise<boolean> {
       console.warn('[WS Dispatch] WS_SECRET not set, skipping emit');
       return false;
     }
-    const res = await fetch('http://127.0.0.1:3004/enqueue', {
+    const wsUrl = process.env.WS_INTERNAL_URL || 'http://127.0.0.1:3004';
+    const res = await fetch(`${wsUrl}/enqueue`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

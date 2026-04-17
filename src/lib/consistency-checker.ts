@@ -108,8 +108,8 @@ const paymentStatusCheck: ConsistencyCheck = {
     // Fetch transactions marked as paid
     const { data: paidTx, error } = await supabaseAdmin
       .from('transactions')
-      .select('id, invoiceNo, total, paidAmount, remainingAmount, paymentStatus')
-      .eq('paymentStatus', 'paid')
+      .select('id, invoice_no, total, paid_amount, remaining_amount, payment_status')
+      .eq('payment_status', 'paid')
       .neq('total', 0);
 
     if (error) {
@@ -126,30 +126,30 @@ const paymentStatusCheck: ConsistencyCheck = {
     const txIds = paidTx.map((t) => t.id);
     const { data: paymentSums } = await supabaseAdmin
       .from('payments')
-      .select('transactionId, amount')
-      .in('transactionId', txIds);
+      .select('transaction_id, amount')
+      .in('transaction_id', txIds);
 
     const sumByTx = new Map<string, number>();
     if (paymentSums) {
       for (const p of paymentSums) {
-        sumByTx.set(p.transactionId, (sumByTx.get(p.transactionId) || 0) + p.amount);
+        sumByTx.set(p.transaction_id, (sumByTx.get(p.transaction_id) || 0) + p.amount);
       }
     }
 
     for (const tx of paidTx) {
       const paymentSum = sumByTx.get(tx.id) || 0;
-      if (Math.abs(paymentSum - tx.paidAmount) > 0.01) {
+      if (Math.abs(paymentSum - tx.paid_amount) > 0.01) {
         issues.push({
-          invoiceNo: tx.invoiceNo,
-          expected: tx.paidAmount,
+          invoiceNo: tx.invoice_no,
+          expected: tx.paid_amount,
           actual: paymentSum,
         });
       }
-      if (Math.abs(tx.remainingAmount) > 0.01) {
+      if (Math.abs(tx.remaining_amount) > 0.01) {
         issues.push({
-          invoiceNo: `${tx.invoiceNo} (remaining)`,
+          invoiceNo: `${tx.invoice_no} (remaining)`,
           expected: 0,
-          actual: tx.remainingAmount,
+          actual: tx.remaining_amount,
         });
       }
     }
@@ -187,19 +187,19 @@ const orphanedItemsCheck: ConsistencyCheck = {
     // Get all transaction items
     const { data: items, error: itemError } = await supabaseAdmin
       .from('transaction_items')
-      .select('id, transactionId, productName');
+      .select('id, transaction_id, product_name');
 
     if (itemError) {
       return { ok: false, message: `DB Error: ${itemError.message}` };
     }
 
-    const orphaned = items?.filter((item) => !txIds.has(item.transactionId)) || [];
+    const orphaned = items?.filter((item) => !txIds.has(item.transaction_id)) || [];
 
     if (orphaned.length > 0) {
       return {
         ok: false,
         message: `Found ${orphaned.length} orphaned transaction item(s)`,
-        details: orphaned.map((o) => ({ id: o.id, transactionId: o.transactionId, productName: o.productName })),
+        details: orphaned.map((o) => ({ id: o.id, transactionId: o.transaction_id, productName: o.product_name })),
       };
     }
 
@@ -216,7 +216,7 @@ const negativeBankBalanceCheck: ConsistencyCheck = {
   async check() {
     const { data: accounts, error } = await supabaseAdmin
       .from('bank_accounts')
-      .select('id, name, bankName, accountNo, balance, isActive')
+      .select('id, name, bank_name, account_no, balance, is_active')
       .lt('balance', 0);
 
     if (error) {
@@ -230,7 +230,7 @@ const negativeBankBalanceCheck: ConsistencyCheck = {
     return {
       ok: false,
       message: `Found ${accounts.length} bank account(s) with negative balance`,
-      details: accounts.map((a) => ({ id: a.id, name: `${a.bankName} - ${a.name}`, accountNo: a.accountNo, balance: a.balance })),
+      details: accounts.map((a) => ({ id: a.id, name: `${a.bank_name} - ${a.name}`, accountNo: a.account_no, balance: a.balance })),
     };
   },
 };
@@ -244,7 +244,7 @@ const negativeCashBoxBalanceCheck: ConsistencyCheck = {
   async check() {
     const { data: boxes, error } = await supabaseAdmin
       .from('cash_boxes')
-      .select('id, name, unitId, balance, isActive');
+      .select('id, name, unit_id, balance, is_active');
 
     if (error) {
       return { ok: false, message: `DB Error: ${error.message}` };
@@ -259,7 +259,7 @@ const negativeCashBoxBalanceCheck: ConsistencyCheck = {
     return {
       ok: false,
       message: `Found ${negative.length} cash box(es) with negative balance`,
-      details: negative.map((b) => ({ id: b.id, name: b.name, unitId: b.unitId, balance: b.balance })),
+      details: negative.map((b) => ({ id: b.id, name: b.name, unitId: b.unit_id, balance: b.balance })),
     };
   },
 };
@@ -273,7 +273,7 @@ const negativeCourierCashCheck: ConsistencyCheck = {
   async check() {
     const { data: courierCash, error } = await supabaseAdmin
       .from('courier_cash')
-      .select('id, courierId, unitId, balance, totalCollected, totalHandover')
+      .select('id, courier_id, unit_id, balance, total_collected, total_handover')
       .lt('balance', 0);
 
     if (error) {
@@ -287,7 +287,7 @@ const negativeCourierCashCheck: ConsistencyCheck = {
     return {
       ok: false,
       message: `Found ${courierCash.length} courier cash record(s) with negative balance`,
-      details: courierCash.map((c) => ({ id: c.id, courierId: c.courierId, unitId: c.unitId, balance: c.balance })),
+      details: courierCash.map((c) => ({ id: c.id, courierId: c.courier_id, unitId: c.unit_id, balance: c.balance })),
     };
   },
 };
@@ -302,7 +302,7 @@ const receivableStatusCheck: ConsistencyCheck = {
   async check() {
     const { data: paidReceivables, error } = await supabaseAdmin
       .from('receivables')
-      .select('id, transactionId, totalAmount, paidAmount, remainingAmount, status')
+      .select('id, transaction_id, total_amount, paid_amount, remaining_amount, status')
       .eq('status', 'paid');
 
     if (error) {
@@ -314,7 +314,7 @@ const receivableStatusCheck: ConsistencyCheck = {
     }
 
     const issues = paidReceivables.filter(
-      (r) => Math.abs(r.remainingAmount) > 0.01 || Math.abs(r.paidAmount - r.totalAmount) > 0.01
+      (r) => Math.abs(r.remaining_amount) > 0.01 || Math.abs(r.paid_amount - r.total_amount) > 0.01
     );
 
     if (issues.length > 0) {
@@ -323,10 +323,10 @@ const receivableStatusCheck: ConsistencyCheck = {
         message: `Found ${issues.length} paid receivable(s) with inconsistent amounts`,
         details: issues.map((r) => ({
           id: r.id,
-          transactionId: r.transactionId,
-          total: r.totalAmount,
-          paid: r.paidAmount,
-          remaining: r.remainingAmount,
+          transactionId: r.transaction_id,
+          total: r.total_amount,
+          paid: r.paid_amount,
+          remaining: r.remaining_amount,
         })),
       };
     }
