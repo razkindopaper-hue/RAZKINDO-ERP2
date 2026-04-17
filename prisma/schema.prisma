@@ -834,6 +834,8 @@ model CourierCash {
   balance        Float    @default(0)  // Current cash in hand
   totalCollected Float    @default(0) @map("total_collected") // Lifetime cash collected from deliveries
   totalHandover  Float    @default(0) @map("total_handover") // Lifetime cash handed over to brankas
+  hppPending     Float    @default(0) @map("hpp_pending") // HPP portion of cash still in hand (not yet deposited to brankas)
+  profitPending  Float    @default(0) @map("profit_pending") // Profit portion of cash still in hand (not yet deposited to brankas)
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
   
@@ -849,6 +851,8 @@ model CourierHandover {
   id               String    @id @default(cuid())
   courierCashId    String    @map("courier_cash_id")
   amount           Float
+  hppPortion       Float     @default(0) @map("hpp_portion") // HPP portion of this handover
+  profitPortion    Float     @default(0) @map("profit_portion") // Profit portion of this handover
   notes            String?
   status           String    @default("pending") // pending, processed, rejected
   financeRequestId String?   @unique @map("finance_request_id")

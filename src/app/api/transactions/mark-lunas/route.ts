@@ -262,6 +262,8 @@ export async function POST(request: NextRequest) {
     // ─── Credit courier cash balance for cash/tempo + courier invoices ───
     // BUG FIX: Only credit the REMAINING amount (what courier hasn't collected yet).
     // If the courier already collected cash during delivery, avoid double-crediting.
+    // Also track hpp/profit portions in courier_cash so that when courier deposits (setor ke brankas),
+    // pool balances can be correctly updated at that time.
     if ((isCashWithCourier || isTempoWithCourier) && txCamel.courierId) {
       try {
         const { data: courierData } = await db.from('users').select('name, unit_id').eq('id', txCamel.courierId).single();
@@ -272,15 +274,23 @@ export async function POST(request: NextRequest) {
           const remainingToCollect = Math.max(0, total - alreadyCollected);
 
           if (remainingToCollect > 0) {
+            // Calculate hpp/profit portions for this remaining amount
+            const hppRatio = total > 0 ? hppPortion / total : 0;
+            const profitRatio = total > 0 ? profitPortion / total : 0;
+            const hppForCourier = remainingToCollect * hppRatio;
+            const profitForCourier = remainingToCollect * profitRatio;
+
             const { data: newBalance, error: ccError } = await db.rpc('atomic_add_courier_cash', {
               p_courier_id: txCamel.courierId,
               p_unit_id: courierUnitId,
               p_amount: remainingToCollect,
+              p_hpp_delta: hppForCourier,
+              p_profit_delta: profitForCourier,
             });
             if (ccError) {
               console.error('[MARK_LUNAS] Failed to add courier cash (non-blocking):', ccError.message);
             } else {
-              console.log(`[MARK_LUNAS] Cash Rp ${remainingToCollect.toLocaleString('id-ID')} from ${txCamel.invoiceNo} added to courier ${courierData?.name || txCamel.courierId} balance (new: ${newBalance})`);
+              console.log(`[MARK_LUNAS] Cash Rp ${remainingToCollect.toLocaleString('id-ID')} from ${txCamel.invoiceNo} added to courier ${courierData?.name || txCamel.courierId} balance (new: ${newBalance}, HPP: ${hppForCourier}, Profit: ${profitForCourier})`);
             }
           } else {
             console.log(`[MARK_LUNAS] Skipping courier cash credit for ${txCamel.invoiceNo} — courier already collected full amount (Rp ${alreadyCollected.toLocaleString('id-ID')})`);
@@ -292,15 +302,22 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Feed pool balances (atomic) ───
-    try {
-      if (hppPortion > 0) {
-        await atomicUpdatePoolBalance('pool_hpp_paid_balance', hppPortion);
+    // POOL BALANCE FIX: Only update pool balances when money goes DIRECTLY to brankas/bank.
+    // When money goes to courier (isCashWithCourier / isTempoWithCourier), the pool balances
+    // should NOT be updated here — they will be updated when the courier deposits (setor) to brankas.
+    // This ensures pool balances reflect money actually in the company's possession, not cash
+    // still held by couriers.
+    if (!isCashWithCourier && !isTempoWithCourier) {
+      try {
+        if (hppPortion > 0) {
+          await atomicUpdatePoolBalance('pool_hpp_paid_balance', hppPortion);
+        }
+        if (profitPortion > 0) {
+          await atomicUpdatePoolBalance('pool_profit_paid_balance', profitPortion);
+        }
+      } catch (poolErr) {
+        console.error('Failed to update pool balance (non-blocking):', poolErr);
       }
-      if (profitPortion > 0) {
-        await atomicUpdatePoolBalance('pool_profit_paid_balance', profitPortion);
-      }
-    } catch (poolErr) {
-      console.error('Failed to update pool balance (non-blocking):', poolErr);
     }
 
     // ─── Update receivables if exists ───

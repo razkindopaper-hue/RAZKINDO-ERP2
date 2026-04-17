@@ -240,3 +240,30 @@ Stage Summary:
 - 16 frontend optimizations applied
 - Auto-repair expanded from 14 to 20 diagnostic checks
 - Server running healthy with all 200s, no errors
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix critical bugs in courier cash → brankas flow
+
+Work Log:
+- Investigated full courier cash lifecycle: transaction creation → courier deliver → handover
+- Discovered 4 critical bugs in RPC handlers:
+  1. atomic_add_courier_cash: expected p_delta but API passes p_amount → courier cash NEVER credited
+  2. process_courier_handover: expected {p_handover_id, p_status} (update) but API sends {p_courier_id, p_unit_id, p_amount} (create) → handover completely broken
+  3. atomic_add_cashback: expected p_delta but API passes p_amount → cashback never added
+  4. FinanceRequest model uses request_by_id + description (required), but RPC used requested_by_id + notes
+- Fixed atomic_add_courier_cash: accepts both p_amount and p_delta, auto-creates courier_cash via upsert
+- Rewrote process_courier_handover: full 8-step atomic flow (validate → deduct courier → credit brankas → create records)
+- Fixed atomic_add_cashback: accepts both p_amount and p_delta
+- Added 4 PostgreSQL RPC definitions to ensure-rpc.ts and deploy-rpcs.ts:
+  - atomic_add_courier_cash (with p_amount/p_delta + upsert)
+  - process_courier_handover (full atomic SQL implementation)
+  - atomic_add_cashback (with p_amount/p_delta)
+  - atomic_deduct_cashback (with p_amount/p_delta)
+- Added generateId import to supabase.ts
+
+Stage Summary:
+- Courier cash flow is now functional: cash collected → courier balance → handover → brankas
+- Cashback operations now work correctly
+- Both JavaScript fallback (Prisma) and PostgreSQL RPC (SQL) implementations are aligned
+- Server running healthy (HTTP 200)

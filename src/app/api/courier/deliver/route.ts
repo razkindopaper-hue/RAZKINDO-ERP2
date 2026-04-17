@@ -3,7 +3,6 @@ import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 import { toCamelCase, toSnakeCase, createLog, createEvent, generateId } from '@/lib/supabase-helpers';
 import { wsDeliveryUpdate } from '@/lib/ws-dispatch';
-import { atomicUpdatePoolBalance } from '@/lib/atomic-ops';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
@@ -83,17 +82,11 @@ export async function PATCH(request: NextRequest) {
       if (payError) throw payError;
       paymentRecord = payment;
 
-      // Update pool balances for sale delivery payments (best-effort)
-      try {
-        if (hppPortion > 0) {
-          await atomicUpdatePoolBalance('pool_hpp_paid_balance', hppPortion);
-        }
-        if (profitPortion > 0) {
-          await atomicUpdatePoolBalance('pool_profit_paid_balance', profitPortion);
-        }
-      } catch (poolError) {
-        console.error('[COURIER DELIVER] Failed to update pool balance (non-blocking):', poolError);
-      }
+      // POOL BALANCE FIX: When courier receives cash, the money stays in the courier's hand.
+      // Pool balances (pool_hpp_paid_balance, pool_profit_paid_balance) should NOT be updated here —
+      // they should only be updated when the courier deposits (setor) to brankas via handover.
+      // The hpp/profit portions are tracked in courier_cash.hppPending / courier_cash.profitPending instead.
+      // Previous code incorrectly updated pools immediately, making them reflect money not yet in brankas.
 
       const newPaid = transaction.paid_amount + amount;
       const newRemaining = Math.max(0, transaction.remaining_amount - amount);
@@ -160,11 +153,13 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Update courier cash balance for cash payments (atomic to prevent race condition)
-    // BUG FIX: Added retry logic for courier cash credit. Previously, if the RPC failed,
-    // it was only logged (non-blocking), causing the courier's balance to not reflect
-    // collected cash, making subsequent handovers impossible.
+    // Also track hpp/profit portions so that when courier deposits (setor ke brankas),
+    // the pool balances can be correctly updated at that time.
     const cashUnitId = courier.unit_id || transaction.unit_id;
     if (paymentMethod === 'cash' && amount && amount > 0 && cashUnitId) {
+      const hppPortionForCash = transaction.total > 0 ? (transaction.total_hpp / transaction.total) * amount : 0;
+      const profitPortionForCash = transaction.total > 0 ? (transaction.total_profit / transaction.total) * amount : 0;
+
       let ccSuccess = false;
       let ccNewBalance = 0;
       for (let attempt = 1; attempt <= 3; attempt++) {
@@ -172,6 +167,8 @@ export async function PATCH(request: NextRequest) {
           p_courier_id: courierId,
           p_unit_id: cashUnitId,
           p_amount: amount,
+          p_hpp_delta: hppPortionForCash,
+          p_profit_delta: profitPortionForCash,
         });
         if (!ccError) {
           ccNewBalance = Number(newBalance) || 0;
@@ -184,7 +181,7 @@ export async function PATCH(request: NextRequest) {
       if (!ccSuccess) {
         console.error('[COURIER DELIVER] CRITICAL: All 3 attempts to credit courier cash failed — courier will NOT see this cash in their balance');
       }
-      createLog(db, { type: 'activity', userId: courierId, action: 'courier_cash_collected', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ amount, invoiceNo: transaction.invoice_no, newBalance: ccNewBalance, success: ccSuccess }), message: `Kurir ${courier.name} mengumpulkan ${formatCurrency(amount)} dari ${transaction.invoice_no}${ccSuccess ? '' : ' [GAGAL kredit saldo]'}` });
+      createLog(db, { type: 'activity', userId: courierId, action: 'courier_cash_collected', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ amount, hppPortion: hppPortionForCash, profitPortion: profitPortionForCash, invoiceNo: transaction.invoice_no, newBalance: ccNewBalance, success: ccSuccess }), message: `Kurir ${courier.name} mengumpulkan ${formatCurrency(amount)} dari ${transaction.invoice_no} (HPP: ${formatCurrency(hppPortionForCash)}, Profit: ${formatCurrency(profitPortionForCash)})${ccSuccess ? '' : ' [GAGAL kredit saldo]'}` });
     }
 
     createLog(db, { type: 'activity', userId: courierId, action: 'delivery_completed', entity: 'transaction', entityId: transactionId, payload: JSON.stringify({ invoiceNo: transaction.invoice_no, customerName: (transaction.customer as any)?.name, paymentMethod, amount, commission }), message: `Pengiriman ${transaction.invoice_no} selesai oleh ${courier.name}` });

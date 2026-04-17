@@ -17,6 +17,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import { supabaseRestClient } from './supabase-rest';
+import { generateId } from './supabase-helpers';
 
 // ─────────────────────────────────────────────────────────────────────
 // PRISMA CLIENT (singleton) — connects to Supabase via PgBouncer
@@ -373,47 +374,57 @@ const rpcHandlers: Record<string, RpcFunction> = {
   },
 
   // ── Courier cash operations ──
+  // BUG FIX: Accept both p_amount (used by API routes) and p_delta (legacy).
+  // Also auto-creates courier_cash record if not exists (upsert pattern).
+  // When courier collects cash: pass p_hpp_delta / p_profit_delta to track
+  // HPP/profit portions that are still held by courier (not yet in brankas).
   async atomic_add_courier_cash(params) {
-    const { p_courier_id, p_unit_id, p_delta } = params;
+    const { p_courier_id, p_unit_id, p_amount, p_delta, p_hpp_delta, p_profit_delta } = params;
+    const delta = p_amount ?? p_delta ?? 0;
+    if (!p_courier_id || !p_unit_id) {
+      return { data: null, error: { message: 'courier_id dan unit_id wajib diisi', code: 'PGRST116' } };
+    }
     try {
-      const courierCash = await prisma.courierCash.findUnique({
+      // When courier collects cash (positive delta), track HPP/profit portions
+      const hppDelta = delta > 0 ? (p_hpp_delta || 0) : 0;
+      const profitDelta = delta > 0 ? (p_profit_delta || 0) : 0;
+
+      // Upsert: get or create courier_cash record
+      const courierCash = await prisma.courierCash.upsert({
         where: { courierId_unitId: { courierId: p_courier_id, unitId: p_unit_id } },
-      });
-
-      if (!courierCash) {
-        return { data: null, error: { message: 'Courier cash record not found', code: 'PGRST116' } };
-      }
-
-      const newBalance = (courierCash.balance || 0) + p_delta;
-      const newTotalCollected = p_delta > 0
-        ? (courierCash.totalCollected || 0) + p_delta
-        : courierCash.totalCollected || 0;
-      const newTotalHandover = p_delta < 0
-        ? (courierCash.totalHandover || 0) + Math.abs(p_delta)
-        : courierCash.totalHandover || 0;
-
-      const updated = await prisma.courierCash.update({
-        where: { courierId_unitId: { courierId: p_courier_id, unitId: p_unit_id } },
-        data: {
-          balance: newBalance,
-          totalCollected: newTotalCollected,
-          totalHandover: newTotalHandover,
+        create: {
+          id: generateId(),
+          courierId: p_courier_id,
+          unitId: p_unit_id,
+          balance: delta,
+          totalCollected: delta > 0 ? delta : 0,
+          totalHandover: delta < 0 ? Math.abs(delta) : 0,
+          hppPending: hppDelta,
+          profitPending: profitDelta,
+        },
+        update: {
+          balance: { increment: delta },
+          totalCollected: delta > 0 ? { increment: delta } : undefined,
+          totalHandover: delta < 0 ? { increment: Math.abs(delta) } : undefined,
+          hppPending: hppDelta !== 0 ? { increment: hppDelta } : undefined,
+          profitPending: profitDelta !== 0 ? { increment: profitDelta } : undefined,
         },
       });
-
-      return { data: updated.balance, error: null };
+      return { data: courierCash.balance, error: null };
     } catch (error: any) {
       return { data: null, error: { message: error.message, code: 'PGRST116' } };
     }
   },
 
   // ── Cashback operations ──
+  // BUG FIX: Accept both p_amount (used by API routes) and p_delta (legacy).
   async atomic_add_cashback(params) {
-    const { p_customer_id, p_delta } = params;
+    const { p_customer_id, p_amount, p_delta } = params;
+    const delta = p_amount ?? p_delta ?? 0;
     try {
       const updated = await prisma.customer.update({
         where: { id: p_customer_id },
-        data: { cashbackBalance: { increment: p_delta } },
+        data: { cashbackBalance: { increment: delta } },
       });
       return { data: updated.cashbackBalance, error: null };
     } catch (error: any) {
@@ -478,28 +489,107 @@ const rpcHandlers: Record<string, RpcFunction> = {
   },
 
   // ── Courier handover ──
+  // BUG FIX: Complete rewrite. The old implementation expected { p_handover_id, p_status, p_processed_by_id }
+  // (for updating an existing handover's status), but the API route sends:
+  // { p_courier_id, p_unit_id, p_amount, p_processed_by_id, p_notes }
+  // to CREATE a new handover atomically (deduct courier cash → credit brankas → create records).
   async process_courier_handover(params) {
-    const { p_handover_id, p_status, p_processed_by_id } = params;
+    const { p_courier_id, p_unit_id, p_amount, p_processed_by_id, p_notes } = params;
     try {
-      const handover = await prisma.courierHandover.findUnique({
-        where: { id: p_handover_id },
-        include: { courierCash: true },
+      // Step 1: Get or create courier_cash record
+      const courierCash = await prisma.courierCash.upsert({
+        where: { courierId_unitId: { courierId: p_courier_id, unitId: p_unit_id } },
+        create: {
+          id: generateId(),
+          courierId: p_courier_id,
+          unitId: p_unit_id,
+          balance: 0,
+          totalCollected: 0,
+          totalHandover: 0,
+        },
+        update: {},
       });
 
-      if (!handover) {
-        return { data: null, error: { message: 'Handover not found', code: 'PGRST116' } };
+      // Step 2: Validate sufficient balance
+      if ((courierCash.balance || 0) < p_amount) {
+        return {
+          data: null,
+          error: { message: `Saldo cash kurir tidak cukup. Saldo: ${courierCash.balance}, Diminta: ${p_amount}`, code: 'PGRST116' },
+        };
       }
 
-      const updated = await prisma.courierHandover.update({
-        where: { id: p_handover_id },
+      // Step 3: Deduct from courier cash balance
+      const updatedCourierCash = await prisma.courierCash.update({
+        where: { id: courierCash.id },
         data: {
-          status: p_status,
+          balance: { decrement: p_amount },
+          totalHandover: { increment: p_amount },
+        },
+      });
+
+      // Step 4: Get or create brankas (cash_box) for the unit
+      let cashBox = await prisma.cashBox.findFirst({
+        where: { unitId: p_unit_id, isActive: true },
+      });
+      if (!cashBox) {
+        cashBox = await prisma.cashBox.create({
+          data: {
+            id: generateId(),
+            name: 'Brankas Utama',
+            unitId: p_unit_id,
+            balance: 0,
+            isActive: true,
+          },
+        });
+      }
+
+      // Step 5: Credit brankas balance
+      const updatedCashBox = await prisma.cashBox.update({
+        where: { id: cashBox.id },
+        data: { balance: { increment: p_amount } },
+      });
+
+      // Step 6: Create finance_request (type: courier_deposit)
+      const financeRequestId = generateId();
+      await prisma.financeRequest.create({
+        data: {
+          id: financeRequestId,
+          type: 'courier_deposit',
+          amount: p_amount,
+          status: 'approved',
+          requestById: p_processed_by_id,
+          processedById: p_processed_by_id,
+          description: `Setoran kurir sebesar ${p_amount}${p_notes ? ` — ${p_notes}` : ''}`,
+          processedAt: new Date(),
+        },
+      });
+
+      // Step 7: Create courier_handover record
+      const handoverId = generateId();
+      await prisma.courierHandover.create({
+        data: {
+          id: handoverId,
+          courierCashId: courierCash.id,
+          amount: p_amount,
+          notes: p_notes || null,
+          status: 'processed',
+          financeRequestId: financeRequestId,
           processedById: p_processed_by_id,
           processedAt: new Date(),
         },
       });
 
-      return { data: updated, error: null };
+      // Step 8: Return results matching expected shape
+      return {
+        data: {
+          handover_id: handoverId,
+          finance_request_id: financeRequestId,
+          cash_box_id: cashBox.id,
+          new_balance: updatedCourierCash.balance,
+          cash_box_balance: updatedCashBox.balance,
+        },
+        error: null,
+      };
     } catch (error: any) {
       return { data: null, error: { message: error.message, code: 'PGRST116' } };
     }

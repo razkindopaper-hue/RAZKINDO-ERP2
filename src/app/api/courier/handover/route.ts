@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
-import { createLog, createEvent } from '@/lib/supabase-helpers';
+import { createLog, createEvent, generateId } from '@/lib/supabase-helpers';
 import { wsFinanceUpdate, wsCourierUpdate } from '@/lib/ws-dispatch';
+import { atomicUpdatePoolBalance } from '@/lib/atomic-ops';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
