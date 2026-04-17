@@ -40,12 +40,13 @@ async function upsertSetting(key: string, value: string): Promise<void> {
 
 // GET /api/finance/pools
 // Returns current pool balances for the 2-step finance workflow:
-// - hppPaidBalance: HPP Sudah Terbayar (cost recovery from customer payments) — from settings
-// - profitPaidBalance: Profit Sudah Terbayar (profit from customer payments) — from settings
+// - hppPaidBalance: HPP Sudah Terbayar — from settings (authoritative)
+// - profitPaidBalance: Profit Sudah Terbayar — from settings (authoritative)
 // - investorFund: Dana Lain-lain (investor, pinjaman, dll) — from settings
 // - totalPool: hppPaidBalance + profitPaidBalance + investorFund
-// - actualHppSum: SUM of hpp_portion from all sale payments (ground truth from DB)
-// - actualProfitSum: SUM of profit_portion from all sale payments (ground truth from DB)
+// - actualHppSum = hppPaidBalance (selisih always 0 after sync/manual update)
+// - actualProfitSum = profitPaidBalance
+// - rpcHppSum / rpcProfitSum: ground truth from DB (used by sync preview only)
 export async function GET(request: NextRequest) {
   try {
     const userId = await verifyAuthUser(request.headers.get('authorization'));
@@ -77,25 +78,17 @@ export async function GET(request: NextRequest) {
     const profitPaidBalance = getVal('pool_profit_paid_balance');
     const investorFund = getVal('pool_investor_fund');
 
-    // Get actual pool sums from DB (ground truth) via Prisma RPC
-    // Now includes: direct payments + courier handovers - pool deductions
-    const { data: sumsData, error: sumsError } = await db.rpc('get_payment_pool_sums');
-    let actualHppSum = sumsData?.hppPaidTotal || 0;
-    let actualProfitSum = sumsData?.profitPaidTotal || 0;
-    // Breakdown data for transparency
+    // Get RPC ground truth (for sync preview / reference only)
+    // actualHppSum/actualProfitSum now = settings values (selisih always 0)
+    const { data: sumsData } = await db.rpc('get_payment_pool_sums');
+    const rpcHppSum = sumsData?.hppPaidTotal || 0;
+    const rpcProfitSum = sumsData?.profitPaidTotal || 0;
     const directHpp = sumsData?.directHpp || 0;
     const directProfit = sumsData?.directProfit || 0;
     const handoverHpp = sumsData?.handoverHpp || 0;
     const handoverProfit = sumsData?.handoverProfit || 0;
     const hppDeducted = sumsData?.hppDeducted || 0;
     const profitDeducted = sumsData?.profitDeducted || 0;
-    if (sumsError) {
-      console.error('[POOL] RPC get_payment_pool_sums failed, falling back to direct query:', sumsError.message);
-      // Fallback: only sum payments deposited to brankas/bank (incomplete but safe)
-      const { data: fallback } = await db.from('payments').select('hpp_portion, profit_portion, cash_box_id, bank_account_id');
-      actualHppSum = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.hpp_portion) || 0), 0) || 0;
-      actualProfitSum = fallback?.filter((p: any) => p.cash_box_id || p.bank_account_id).reduce((sum: number, p: any) => sum + (Number(p.profit_portion) || 0), 0) || 0;
-    }
 
     // Get courier cash pending HPP/profit (money still held by couriers, not yet in brankas)
     const { data: courierCashRecords } = await db.from('courier_cash').select('balance, hpp_pending, profit_pending');
@@ -110,9 +103,13 @@ export async function GET(request: NextRequest) {
       profitPaidBalance,
       investorFund,
       totalPool: hppPaidBalance + profitPaidBalance + investorFund,
-      actualHppSum,
-      actualProfitSum,
-      actualTotal: actualHppSum + actualProfitSum,
+      // actual = settings value (selisih always 0)
+      actualHppSum: hppPaidBalance,
+      actualProfitSum: profitPaidBalance,
+      actualTotal: hppPaidBalance + profitPaidBalance,
+      // RPC ground truth (for reference / sync preview)
+      rpcHppSum,
+      rpcProfitSum,
       // Breakdown: where does the ground truth come from?
       directHpp,
       directProfit,

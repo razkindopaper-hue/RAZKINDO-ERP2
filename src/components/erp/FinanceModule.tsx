@@ -341,9 +341,8 @@ export default function FinanceModule() {
     // Total dana = uang fisik di perusahaan (brankas + bank + dana masih di kurir)
     const totalFunds = totalCashInBoxes + totalInBanks + totalWithCouriers;
     const totalPool = hppPaidBalance + profitPaidBalance + investorFund;
+    // Pool vs Fisik: selisih antara komposisi pool dan dana fisik
     const poolDiff = totalPool - totalFunds;
-    const hppDiff = hppPaidBalance - actualHppSum;
-    const profitDiff = profitPaidBalance - actualProfitSum;
     
     return {
       hppInHand,
@@ -360,8 +359,6 @@ export default function FinanceModule() {
       actualProfitSum,
       actualTotal,
       poolDiff,
-      hppDiff,
-      profitDiff,
     };
   }, [cashBoxes, bankAccounts, courierCashSummary, poolBalancesData]);
   
@@ -897,47 +894,47 @@ export default function FinanceModule() {
             </div>
           </div>
 
-          {/* Reconciliation Info: Pool vs Ground Truth + Courier Pending */}
+          {/* Reconciliation Info: Pool vs Dana Fisik */}
           <div className={`mt-3 p-2.5 rounded-lg text-xs space-y-1.5 ${
-            fundBalances.poolDiff !== 0 || fundBalances.hppDiff !== 0 || fundBalances.profitDiff !== 0
+            Math.abs(fundBalances.poolDiff) > 100
               ? 'bg-red-50 border border-red-200 dark:bg-red-950/40 dark:border-red-800'
               : 'bg-green-50 border border-green-200 dark:bg-green-950/40 dark:border-green-800'
           }`}>
-            {fundBalances.poolDiff !== 0 || fundBalances.hppDiff !== 0 || fundBalances.profitDiff !== 0 ? (
+            {Math.abs(fundBalances.poolDiff) > 100 ? (
               <>
                 <div className="flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  Ada Selisih Data
+                  Ada Selisih Pool vs Dana Fisik
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[11px]">
+                <div className="grid grid-cols-2 gap-1.5 text-[11px]">
                   <div className="flex items-center justify-between sm:justify-start gap-2">
-                    <span className="text-muted-foreground">Pool vs Fisik:</span>
+                    <span className="text-muted-foreground">Total Pool:</span>
+                    <span className="font-semibold text-purple-700 dark:text-purple-300">{formatCurrency(fundBalances.totalPool)}</span>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-start gap-2">
+                    <span className="text-muted-foreground">Dana Fisik:</span>
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-300">{formatCurrency(fundBalances.totalFunds)}</span>
+                  </div>
+                  <div className="col-span-2 flex items-center justify-between sm:justify-start gap-2">
+                    <span className="text-muted-foreground">Selisih:</span>
                     <span className={`font-semibold ${fundBalances.poolDiff > 0 ? 'text-red-600' : 'text-blue-600'}`}>
                       {fundBalances.poolDiff > 0 ? '+' : ''}{formatCurrency(fundBalances.poolDiff)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between sm:justify-start gap-2">
-                    <span className="text-muted-foreground">HPP Selisih:</span>
-                    <span className={`font-semibold ${fundBalances.hppDiff !== 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {fundBalances.hppDiff !== 0 ? `${fundBalances.hppDiff > 0 ? '+' : ''}${formatCurrency(fundBalances.hppDiff)}` : '✓ OK'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between sm:justify-start gap-2">
-                    <span className="text-muted-foreground">Profit Selisih:</span>
-                    <span className={`font-semibold ${fundBalances.profitDiff !== 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {fundBalances.profitDiff !== 0 ? `${fundBalances.profitDiff > 0 ? '+' : ''}${formatCurrency(fundBalances.profitDiff)}` : '✓ OK'}
                     </span>
                   </div>
                 </div>
                 <div className="text-[10px] text-muted-foreground pt-0.5 break-words">
                   <Info className="w-3 h-3 inline mr-0.5" />
-                  Pool ({formatCurrency(fundBalances.totalPool)}) vs Dana Fisik ({formatCurrency(fundBalances.totalFunds)})
+                  Brankas {formatCurrency(fundBalances.totalCashInBoxes)} + Bank {formatCurrency(fundBalances.totalInBanks)} + Kurir {formatCurrency(fundBalances.totalWithCouriers)} = {formatCurrency(fundBalances.totalFunds)}
                   {fundBalances.investorFund > 0 && ` — Dana Lain-lain: ${formatCurrency(fundBalances.investorFund)}`}
                 </div>
-                {/* Show courier cash pending as additional context */}
-                {(fundBalances.totalWithCouriers > 0) && (
-                  <div className="text-[10px] text-orange-600 dark:text-orange-400 pt-0.5 border-t border-orange-200 dark:border-orange-800 mt-1">
-                    📦 Dana di kurir: {formatCurrency(fundBalances.totalWithCouriers)} — belum masuk pool (akan masuk saat kurir setor ke brankas)
+                {fundBalances.poolDiff > 0 && (
+                  <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-0.5">
+                    Pool lebih besar dari dana fisik. Cek apakah ada dana yang belum tercatat di brankas/bank/kurir.
+                  </div>
+                )}
+                {fundBalances.poolDiff < 0 && (
+                  <div className="text-[10px] text-blue-600 dark:text-blue-400 pt-0.5">
+                    Dana fisik lebih besar dari pool. Mungkin ada dana dari sumber lain yang belum masuk komposisi pool.
                   </div>
                 )}
               </>
@@ -945,10 +942,9 @@ export default function FinanceModule() {
               <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-300">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Data Tersinkronisasi — Pool ({formatCurrency(fundBalances.totalPool)}) = Dana Fisik ({formatCurrency(fundBalances.totalFunds)})
-                {fundBalances.investorFund > 0 ? ` + Dana Lain-lain (${formatCurrency(fundBalances.investorFund)})` : ''}
                 {fundBalances.totalWithCouriers > 0 && (
                   <span className="text-orange-600 dark:text-orange-400 ml-2">
-                    📦 +Kurir: {formatCurrency(fundBalances.totalWithCouriers)}
+                    (termasuk {formatCurrency(fundBalances.totalWithCouriers)} di kurir)
                   </span>
                 )}
               </div>

@@ -56,7 +56,9 @@ export async function POST(request: NextRequest) {
 
     const { data: user } = await db.from('users').select('id, role').eq('id', userId).single();
     if (!user) return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 });
-    if (user.role !== 'sales') return NextResponse.json({ error: 'Target penjualan hanya dapat diberikan kepada user dengan role sales' }, { status: 400 });
+    if (!['sales', 'admin', 'super_admin', 'keuangan'].includes(user.role)) {
+      return NextResponse.json({ error: 'Target penjualan hanya dapat diberikan kepada user dengan role sales, admin, super_admin, atau keuangan' }, { status: 400 });
+    }
 
     if (period === 'monthly' && (month === undefined || month === null)) return NextResponse.json({ error: 'Field month wajib diisi untuk period monthly' }, { status: 400 });
     if (period === 'quarterly' && (quarter === undefined || quarter === null)) return NextResponse.json({ error: 'Field quarter wajib diisi untuk period quarterly' }, { status: 400 });

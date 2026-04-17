@@ -119,6 +119,7 @@ export default function DashboardModule() {
   const [targetUserId, setTargetUserId] = useState('');
   const [targetPeriod, setTargetPeriod] = useState('monthly');
   const [targetMonth, setTargetMonth] = useState(String(new Date().getMonth() + 1));
+  const [targetQuarter, setTargetQuarter] = useState('1');
   const [targetYear, setTargetYear] = useState(String(new Date().getFullYear()));
   const [targetAmount, setTargetAmount] = useState('');
   const [targetNotes, setTargetNotes] = useState('');
@@ -172,7 +173,7 @@ export default function DashboardModule() {
   });
   const salesUsers = useMemo(() =>
     (usersData?.users || []).filter(
-      (u: any) => u.role === 'sales' && u.isActive && u.status === 'approved'
+      (u: any) => ['sales', 'admin', 'super_admin', 'keuangan'].includes(u.role) && u.isActive && u.status === 'approved'
     ),
     [usersData?.users]
   );
@@ -197,6 +198,7 @@ export default function DashboardModule() {
       setTargetPeriod(target.period);
       setTargetYear(String(target.year));
       setTargetMonth(target.month ? String(target.month) : '1');
+      setTargetQuarter(target.quarter ? String(target.quarter) : '1');
       setTargetAmount(String(target.targetAmount));
       setTargetNotes(target.notes || '');
     } else {
@@ -205,6 +207,7 @@ export default function DashboardModule() {
       setTargetPeriod('monthly');
       setTargetYear(String(new Date().getFullYear()));
       setTargetMonth(String(new Date().getMonth() + 1));
+      setTargetQuarter('1');
       setTargetAmount('');
       setTargetNotes('');
     }
@@ -225,7 +228,7 @@ export default function DashboardModule() {
         period: form.period,
         year: Number(form.year),
         month: form.period === 'monthly' ? Number(form.month) : 0,
-        quarter: form.period === 'quarterly' ? 1 : 0,
+        quarter: form.period === 'quarterly' ? Number(form.quarter) : 0,
         targetAmount: Number(form.targetAmount),
         notes: form.notes || undefined,
       });
@@ -257,11 +260,15 @@ export default function DashboardModule() {
   
   const handleSaveTarget = () => {
     if (!editingTarget && !targetUserId) {
-      toast.error('Pilih sales terlebih dahulu');
+      toast.error('Pilih user terlebih dahulu');
       return;
     }
     if (!targetAmount || Number(targetAmount) <= 0) {
       toast.error('Target amount harus lebih dari 0');
+      return;
+    }
+    if (targetPeriod === 'quarterly' && (!targetQuarter || Number(targetQuarter) < 1 || Number(targetQuarter) > 4)) {
+      toast.error('Pilih quarter (Q1-Q4)');
       return;
     }
     saveTargetMutation.mutate({
@@ -269,6 +276,7 @@ export default function DashboardModule() {
       period: targetPeriod,
       year: targetYear,
       month: targetMonth,
+      quarter: targetQuarter,
       targetAmount,
       notes: targetNotes,
     });
@@ -1271,14 +1279,14 @@ export default function DashboardModule() {
             {/* Select Sales User - only for new target */}
             {!editingTarget && (
               <div className="space-y-2">
-                <Label className="text-sm">Sales</Label>
+                <Label className="text-sm">User</Label>
                 <Select value={targetUserId} onValueChange={setTargetUserId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Pilih sales" />
+                    <SelectValue placeholder="Pilih user" />
                   </SelectTrigger>
                   <SelectContent>
                     {salesUsers.length === 0 ? (
-                      <SelectItem value="__none" disabled>Tidak ada sales aktif</SelectItem>
+                      <SelectItem value="__none" disabled>Tidak ada user aktif</SelectItem>
                     ) : (
                       salesUsers.map((u: any) => (
                         <SelectItem key={u.id} value={u.id}>
@@ -1335,6 +1343,24 @@ export default function DashboardModule() {
                     {['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'].map((m, i) => (
                       <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Quarter selector for quarterly period */}
+            {!editingTarget && targetPeriod === 'quarterly' && (
+              <div className="space-y-2">
+                <Label className="text-sm">Quarter</Label>
+                <Select value={targetQuarter} onValueChange={setTargetQuarter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Q1 (Jan-Mar)</SelectItem>
+                    <SelectItem value="2">Q2 (Apr-Jun)</SelectItem>
+                    <SelectItem value="3">Q3 (Jul-Sep)</SelectItem>
+                    <SelectItem value="4">Q4 (Okt-Des)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

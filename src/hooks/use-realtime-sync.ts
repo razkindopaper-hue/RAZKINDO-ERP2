@@ -71,13 +71,16 @@ const EVENT_TO_QUERY_KEYS: Record<string, string[][]> = {
     ['finance-pools'],
   ],
 
-  // Delivery events — invalidate transactions, courier dashboard, receivables
+  // Delivery events — invalidate transactions, courier dashboard, receivables, courier cash
   'erp:delivery_update': [
     ['transactions'],
     ['dashboard'],
     ['receivables'],
     ['finance-pools'],
     ['courier-dashboard'],
+    ['courier-cash-summary'],
+    ['bank-accounts'],
+    ['cash-boxes'],
   ],
 
   // Salary events — invalidate salaries
@@ -100,10 +103,14 @@ const EVENT_TO_QUERY_KEYS: Record<string, string[][]> = {
     ['receivables'],
   ],
 
-  // Courier events — invalidate transactions, dashboard
+  // Courier events — invalidate transactions, dashboard, courier cash, brankas/bank
   'erp:courier_update': [
     ['transactions'],
     ['dashboard'],
+    ['courier-cash-summary'],
+    ['bank-accounts'],
+    ['cash-boxes'],
+    ['finance-pools'],
   ],
 
   // New event notification — always refresh events list
