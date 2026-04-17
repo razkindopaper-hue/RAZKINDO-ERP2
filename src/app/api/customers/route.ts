@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
     // Auto-generate PWA code for the new customer
     const pwaCode = await generateCustomerCode();
 
-    const { data: customer } = await db
+    const { data: customer, error: insertError } = await db
       .from('customers')
       .insert({
         id: generateId(),
@@ -221,6 +221,7 @@ export async function POST(request: NextRequest) {
         code: pwaCode,
         cashback_type: data.cashbackType || 'percentage',
         cashback_value: data.cashbackValue || 0,
+        updated_at: new Date().toISOString(),
       })
       .select(`
         *,
@@ -228,6 +229,14 @@ export async function POST(request: NextRequest) {
         assigned_to:users!assigned_to_id(id, name, email)
       `)
       .single();
+
+    if (insertError) {
+      console.error('Customer insert error:', insertError);
+      return NextResponse.json(
+        { error: 'Gagal menambahkan pelanggan: ' + insertError.message },
+        { status: 500 }
+      );
+    }
 
     const customerCamel = toCamelCase(customer);
     wsCustomerUpdate({ unitId: data.unitId });

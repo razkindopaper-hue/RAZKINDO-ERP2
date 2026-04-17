@@ -57,11 +57,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: unit } = await db
+    const { data: unit, error: insertError } = await db
       .from('units')
-      .insert({ id: generateId(), name, address, phone })
+      .insert({ id: generateId(), name, address, phone, updated_at: new Date().toISOString() })
       .select()
       .single();
+
+    if (insertError) {
+      console.error('Unit insert error:', insertError);
+      return NextResponse.json(
+        { error: 'Gagal menambahkan unit: ' + insertError.message },
+        { status: 500 }
+      );
+    }
 
     const unitCamel = toCamelCase(unit);
 

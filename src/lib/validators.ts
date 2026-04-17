@@ -223,7 +223,8 @@ export const customerSchemas = {
   create: z.object({
     name: z.string().min(1, 'Nama pelanggan wajib diisi'),
     phone: z.string().nullable().optional(),
-    email: z.string().email().nullable().optional(),
+    email: z.union([z.string().email(), z.literal('')]).nullable().optional()
+      .transform(v => (v === '' ? null : v)),
     address: z.string().nullable().optional(),
     unitId: z.string().min(1, 'Unit/Cabang wajib diisi'),
     notes: z.string().nullable().optional(),
@@ -242,8 +243,9 @@ export const supplierSchemas = {
   /** POST /api/suppliers — create supplier */
   create: z.object({
     name: z.string().min(1, 'Nama supplier wajib diisi'),
-    phone: z.string().nullable().optional(),
-    email: z.string().email().nullable().optional(),
+    phone: z.string().max(30).nullable().optional(),
+    email: z.union([z.string().email(), z.literal('')]).nullable().optional()
+      .transform(v => (v === '' ? null : v)),
     address: z.string().nullable().optional(),
     bankName: z.string().nullable().optional(),
     bankAccount: z.string().nullable().optional(),

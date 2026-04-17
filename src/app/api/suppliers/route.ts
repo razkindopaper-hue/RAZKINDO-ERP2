@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
     const data = validation.data;
 
-    const { data: supplier } = await db
+    const { data: supplier, error: insertError } = await db
       .from('suppliers')
       .insert({
         id: generateId(),
@@ -67,10 +67,19 @@ export async function POST(request: NextRequest) {
         address: data.address,
         bank_name: data.bankName,
         bank_account: data.bankAccount,
-        notes: data.notes
+        notes: data.notes,
+        updated_at: new Date().toISOString()
       })
       .select()
       .single();
+
+    if (insertError) {
+      console.error('Supplier insert error:', insertError);
+      return NextResponse.json(
+        { error: 'Gagal menambahkan supplier: ' + insertError.message },
+        { status: 500 }
+      );
+    }
 
     const supplierCamel = toCamelCase(supplier);
 
