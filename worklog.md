@@ -144,3 +144,26 @@ Stage Summary:
 - API accepts updates for custom role users without requiring role to be in VALID_ROLES
 - EditUserForm shows custom role name as read-only badge for non-ERP employees
 - Pool reset has verification logging to confirm values are saved correctly
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Add real-time server monitoring (CPU/RAM), server controls (restart/repair/cleanup), and Supabase live status to Storage tab
+
+Work Log:
+- Created /api/system/restart/route.ts - Restart dev server with proper env handling
+- Created /api/system/auto-repair/route.ts - Runs consistency checks and auto-fixes issues (negative balances, orphaned records, payment inconsistencies, data cleanup)
+- Created /api/storage/supabase-status/route.ts - Real-time Supabase connection status with latency, quality assessment, table stats
+- Enhanced StorageTab.tsx with:
+  - Real-time CPU & RAM monitoring panel (polls every 5 seconds)
+  - Node.js process memory details (RSS, heap, swap, uptime)
+  - Real-time Supabase connection status (polls every 10 seconds) with live indicator
+  - Server Control Panel: Restart Server, Auto Repair Bugs, Hapus Data Sampah buttons
+  - Auto-repair results display with status badges
+
+Stage Summary:
+- Existing /api/system/stats already provided CPU/RAM data (reused, no new route needed)
+- Existing /api/system/consistency provided check logic (auto-repair wraps it with fix capability)
+- TypeScript compiles with 0 new errors (only pre-existing error in supabase-health/route.ts)
+- Server healthy on port 3000
+- All new APIs properly require authentication
