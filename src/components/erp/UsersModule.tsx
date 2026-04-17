@@ -179,8 +179,10 @@ export default function UsersModule() {
   );
 
   // Separate system users and non-ERP employees
+  // A user is "system" if: canLogin is true (or undefined/default=true) AND has no customRoleId
+  // A user is "non-ERP" if: canLogin is false OR has a customRoleId
   const systemUsers = filteredUsers.filter(u => u.canLogin !== false && !u.customRoleId);
-  const nonErpEmployees = filteredUsers.filter(u => u.canLogin === false || u.customRoleId);
+  const nonErpEmployees = filteredUsers.filter(u => u.canLogin === false || !!u.customRoleId);
   const displayUsers = activeTab === 'system' ? systemUsers : nonErpEmployees;
 
   // Counts
@@ -890,6 +892,7 @@ function EditUserForm({
   const [password, setPassword] = useState('');
   const [nearCommission, setNearCommission] = useState(String(user.nearCommission || 0));
   const [farCommission, setFarCommission] = useState(String(user.farCommission || 0));
+  const [canLogin, setCanLogin] = useState(user.canLogin !== false);
 
   const toggleUnit = (unitId: string) => {
     setUnitIds(prev =>
@@ -923,6 +926,10 @@ function EditUserForm({
     if (role === 'kurir') {
       data.nearCommission = Number(nearCommission) || 0;
       data.farCommission = Number(farCommission) || 0;
+    }
+    // Send canLogin toggle (for non-ERP employees being promoted to system users)
+    if (isCustomRole || user.canLogin === false) {
+      data.canLogin = canLogin;
     }
     onSave(data);
   };
@@ -980,6 +987,34 @@ function EditUserForm({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Can Login toggle — visible for non-ERP employees or users with canLogin=false */}
+      {(isCustomRole || user.canLogin === false) && (
+        <div className="rounded-lg border p-3 space-y-2">
+          <label className="flex items-center justify-between cursor-pointer">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium">Izinkan Login ke Sistem</Label>
+              <p className="text-xs text-muted-foreground">
+                Aktifkan untuk memberikan akses login ke sistem ERP. Pastikan user memiliki password.
+              </p>
+            </div>
+            <Checkbox
+              checked={canLogin}
+              onCheckedChange={(checked) => setCanLogin(checked === true)}
+            />
+          </label>
+          {canLogin && !user.email && (
+            <p className="text-xs text-amber-600">
+              User tidak memiliki email. Tambahkan email terlebih dahulu agar bisa login.
+            </p>
+          )}
+          {canLogin && !password && (
+            <p className="text-xs text-amber-600">
+              Set password baru di atas agar user bisa login.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Multi-unit selector */}
       {role !== 'super_admin' && (

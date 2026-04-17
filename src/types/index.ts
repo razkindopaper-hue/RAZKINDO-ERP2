@@ -15,7 +15,7 @@ export interface User {
   email: string;
   name: string;
   phone?: string;
-  role: UserRole;
+  role: UserRole | string;
   unitId?: string;
   unit?: Unit;
   userUnits?: Unit[];  // Multi-unit assignment (from user_units junction table)

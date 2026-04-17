@@ -68,6 +68,7 @@ import { useState, useEffect, useRef } from 'react';
 // ============== MOBILE BOTTOM NAV ==============
 function MobileBottomNav({ activeModule, onNavigate, onOpenMore }: { activeModule: string; onNavigate: (id: string) => void; onOpenMore: () => void }) {
   const { user } = useAuthStore();
+  const STANDARD_ROLES = ['super_admin', 'sales', 'kurir', 'keuangan'];
   const allModules = [
     { id: 'dashboard', label: 'Beranda', icon: LayoutDashboard, roles: ['super_admin', 'sales', 'kurir', 'keuangan'] },
     { id: 'transaksi', label: 'Transaksi', icon: ShoppingCart, roles: ['super_admin', 'sales', 'kurir', 'keuangan'] },
@@ -81,7 +82,8 @@ function MobileBottomNav({ activeModule, onNavigate, onOpenMore }: { activeModul
     { id: 'pengguna', label: 'Pengguna', icon: Users, roles: ['super_admin'] },
     { id: 'pengaturan', label: 'Setting', icon: Settings, roles: ['super_admin'] },
   ];
-  const visible = allModules.filter(m => { if (!user) return false; if (user.role === 'super_admin') return true; return m.roles.includes(user.role); });
+  const isCustomRole = !!user && user.role && !STANDARD_ROLES.includes(user.role);
+  const visible = allModules.filter(m => { if (!user) return false; if (user.role === 'super_admin') return true; if (isCustomRole && m.id === 'dashboard') return true; return m.roles.includes(user.role); });
   const seen = new Set<string>();
   const unique = visible.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
   const bottomItems = unique.slice(0, 4);
@@ -205,7 +207,8 @@ function MainApp() {
     { id: 'pengaturan', label: 'Pengaturan', icon: Settings, roles: ['super_admin'] },
   ];
 
-  const visibleModules = modules.filter(m => { if (!user) return false; if (user.role === 'super_admin') return true; return m.roles.includes(user.role); });
+  const isCustomRoleDesktop = !!user && user.role && !['super_admin', 'sales', 'kurir', 'keuangan'].includes(user.role);
+  const visibleModules = modules.filter(m => { if (!user) return false; if (user.role === 'super_admin') return true; if (isCustomRoleDesktop && m.id === 'dashboard') return true; return m.roles.includes(user.role); });
 
   const handleNav = (id: string) => {
     setActiveModule(id);
@@ -222,7 +225,7 @@ function MainApp() {
   const renderModule = () => {
     if (!user) return null;
     switch (activeModule) {
-      case 'dashboard': return user.role === 'sales' ? <SalesDashboard /> : user.role === 'kurir' ? <CourierDashboard /> : <DashboardModule />;
+      case 'dashboard': return (user.role === 'sales') ? <SalesDashboard /> : (user.role === 'kurir') ? <CourierDashboard /> : <DashboardModule />;
       case 'transaksi': return <TransactionsModule />;
       case 'produk': return <ProductsModule />;
       case 'pelanggan': return user.role === 'super_admin' ? <CustomerManagementModule /> : <CustomersModule />;

@@ -130,6 +130,14 @@ export async function PATCH(
       updateData.password = await bcrypt.hash(data.password, 12);
     }
 
+    if (data.canLogin !== undefined) {
+      updateData.can_login = data.canLogin;
+      // When enabling login, ensure user has email for authentication
+      if (data.canLogin && !existingCamel.email) {
+        return NextResponse.json({ error: 'User harus memiliki email untuk bisa login' }, { status: 400 });
+      }
+    }
+
     const { data: user } = await db
       .from('users')
       .update(updateData)
@@ -174,8 +182,8 @@ export async function PATCH(
       }
     }
 
-    // Invalidate auth cache when status or isActive changes
-    if (data.status !== undefined || data.isActive !== undefined) {
+    // Invalidate auth cache when status, isActive, or canLogin changes
+    if (data.status !== undefined || data.isActive !== undefined || data.canLogin !== undefined) {
       invalidateUserAuthCache(id);
     }
 
