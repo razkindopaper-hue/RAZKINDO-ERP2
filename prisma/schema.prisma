@@ -167,6 +167,8 @@ model Customer {
   totalOrders         Int      @default(0) @map("total_orders")
   totalSpent          Float    @default(0) @map("total_spent")
   cashbackBalance     Float    @default(0) @map("cashback_balance") // Customer cashback balance
+  cashbackType        String   @default("percentage") @map("cashback_type") // percentage or fixed
+  cashbackValue       Float    @default(0) @map("cashback_value") // Cashback value (percentage or fixed amount)
   status              String   @default("active") // active, lost, inactive
   assignedToId        String?  @map("assigned_to_id") // Sales yang menangani pelanggan ini
   lastTransactionDate DateTime? @map("last_transaction_date") // Tanggal transaksi terakhir

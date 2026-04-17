@@ -220,6 +220,7 @@ export async function POST(
             payment_status: 'unpaid',
             notes: data.notes || `Order dari PWA (${customer.name})`,
             transaction_date: now.toISOString(),
+            updated_at: new Date().toISOString(),
           })
           .select(`
             *,

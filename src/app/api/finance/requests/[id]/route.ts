@@ -451,6 +451,7 @@ async function createPurchaseTransaction(existingRequest: any, data: any): Promi
     totalHpp: total, totalProfit: 0, hppPaid: isPaid ? total : 0, profitPaid: 0, hppUnpaid: isPaid ? 0 : total, profitUnpaid: 0,
     paymentMethod: isPaid ? 'cash' : 'tempo', status: 'approved', paymentStatus: isPaid ? 'paid' : 'unpaid',
     notes: existingRequest.description, transactionDate: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   });
 
   const { data: transaction, error } = await db.from('transactions').insert(transactionData).select().single();
@@ -487,6 +488,7 @@ async function createExpenseTransaction(existingRequest: any, data: any): Promis
     totalHpp: 0, totalProfit: 0, hppPaid: 0, profitPaid: 0, hppUnpaid: 0, profitUnpaid: 0,
     paymentMethod: 'cash', status: 'approved', paymentStatus: 'paid',
     notes: existingRequest.description, transactionDate: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   });
   const { data: expTx, error } = await db.from('transactions').insert(transactionData).select('id').single();
   if (error) throw error;
