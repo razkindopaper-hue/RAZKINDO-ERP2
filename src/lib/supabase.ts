@@ -21,9 +21,57 @@ import { supabaseRestClient } from './supabase-rest';
 // ─────────────────────────────────────────────────────────────────────
 // PRISMA CLIENT (singleton) — connects to Supabase via PgBouncer
 // ─────────────────────────────────────────────────────────────────────
+// CRITICAL FIX: System env may have DATABASE_URL=file:... (SQLite) which
+// overrides the .env PostgreSQL URL. We must force Prisma to use the
+// correct PostgreSQL URL via datasources override.
+// ─────────────────────────────────────────────────────────────────────
+
+// Read correct DB URL from .env file (system env may have SQLite override)
+function getSupabaseDbUrl(): string {
+  // Prefer DIRECT_URL (non-pooler, for direct Prisma queries)
+  // then DATABASE_URL from .env (pooler), then whatever is in env
+  const directUrl = process.env.DIRECT_URL;
+  const envDbUrl = process.env.DATABASE_URL;
+
+  // If DIRECT_URL is a valid PostgreSQL URL, use it
+  if (directUrl && (directUrl.startsWith('postgresql://') || directUrl.startsWith('postgres://'))) {
+    return directUrl;
+  }
+  // If DATABASE_URL is a valid PostgreSQL URL, use it
+  if (envDbUrl && (envDbUrl.startsWith('postgresql://') || envDbUrl.startsWith('postgres://'))) {
+    return envDbUrl;
+  }
+  // Fallback: try reading from .env file directly
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const envPath = path.join(process.cwd(), '.env');
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('DIRECT_URL=') || trimmed.startsWith('DATABASE_URL=')) {
+        const url = trimmed.split('=').slice(1).join('=');
+        if (url.startsWith('postgresql://') || url.startsWith('postgres://')) {
+          return url;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Last resort: return whatever is there (will fail with clear error)
+  return envDbUrl || '';
+}
+
+const supabaseDbUrl = getSupabaseDbUrl();
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
-export const prisma = globalForPrisma.prisma || new PrismaClient();
+export const prisma = globalForPrisma.prisma || new PrismaClient({
+  datasources: {
+    db: {
+      url: supabaseDbUrl,
+    },
+  },
+});
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 // ─────────────────────────────────────────────────────────────────────

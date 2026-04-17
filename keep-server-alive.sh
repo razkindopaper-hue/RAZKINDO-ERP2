@@ -2,6 +2,20 @@
 # Razkindo ERP - Keep Server Alive (smart: production if built, dev otherwise)
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# CRITICAL: Override system DATABASE_URL if it points to SQLite (file:)
+# System env may have DATABASE_URL=file:/... which breaks Prisma PostgreSQL connection
+_ENV_FILE="$PROJECT_DIR/.env"
+if [ -f "$_ENV_FILE" ]; then
+  _DB_URL=$(grep '^DATABASE_URL=' "$_ENV_FILE" | head -1 | cut -d'=' -f2-)
+  _DIRECT_URL=$(grep '^DIRECT_URL=' "$_ENV_FILE" | head -1 | cut -d'=' -f2-)
+  if [ -n "$_DB_URL" ] && echo "$_DB_URL" | grep -q '^postgresql://'; then
+    export DATABASE_URL="$_DB_URL"
+  fi
+  if [ -n "$_DIRECT_URL" ] && echo "$_DIRECT_URL" | grep -q '^postgresql://'; then
+    export DIRECT_URL="$_DIRECT_URL"
+  fi
+fi
+
 if ! curl -s -o /dev/null http://localhost:3000 2>/dev/null; then
   echo "[$(date)] Server down, restarting..." >> "$PROJECT_DIR/server-restart.log"
   # Kill any leftover processes
