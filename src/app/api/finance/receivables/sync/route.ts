@@ -18,16 +18,22 @@ export async function POST(request: NextRequest) {
     const { data: existingReceivables } = await db.from('receivables').select('transaction_id');
     const existingTxIds = new Set((existingReceivables || []).map((r: any) => r.transaction_id));
 
-    let created = 0;
-    for (const tx of unpaidSales) {
+    // Batch fetch all unique customers needed (eliminates N+1)
+    const customerIds = [...new Set((unpaidSales || []).map((tx: any) => tx.customer_id).filter(Boolean))];
+    const { data: customers } = customerIds.length > 0
+      ? await db.from('customers').select('id, name, phone').in('id', customerIds)
+      : { data: [] };
+    const customerMap = Object.fromEntries((customers || []).map((c: any) => [c.id, c]));
+
+    // Build all receivable records in memory
+    const receivablesToInsert: any[] = [];
+    for (const tx of unpaidSales || []) {
       if (existingTxIds.has(tx.id)) continue;
       const remaining = tx.total - tx.paid_amount;
       if (remaining <= 0) continue;
 
-      // Get customer info
-      const { data: customer } = await db.from('customers').select('name, phone').eq('id', tx.customer_id).maybeSingle();
-
-      const insertData = toSnakeCase({
+      const customer = customerMap[tx.customer_id];
+      receivablesToInsert.push(toSnakeCase({
         id: generateId(), transactionId: tx.id,
         customerName: customer?.name || 'Walk-in',
         customerPhone: customer?.phone || '',
@@ -37,16 +43,24 @@ export async function POST(request: NextRequest) {
         assignedToId: tx.created_by_id,
         priority: tx.due_date && new Date(tx.due_date) < new Date() ? 'high' : 'normal',
         updatedAt: new Date().toISOString(),
-      });
+      }));
+    }
 
-      const { error: insertError } = await db.from('receivables').insert(insertData);
-      if (insertError) {
-        // If unique constraint violation, update instead
-        if (insertError.code === '23505') {
-          await db.from('receivables').update({ paid_amount: tx.paid_amount, remaining_amount: remaining, updated_at: new Date().toISOString() }).eq('transaction_id', tx.id);
+    // Batch insert all receivables in one query
+    let created = 0;
+    if (receivablesToInsert.length > 0) {
+      const { error: insertError } = await db.from('receivables').insert(receivablesToInsert);
+      if (!insertError) {
+        created = receivablesToInsert.length;
+      } else if (insertError.code === '23505') {
+        // Unique constraint violation — fall back to individual upserts
+        for (const insertData of receivablesToInsert) {
+          const { error: singleError } = await db.from('receivables').insert(insertData);
+          if (singleError?.code === '23505') {
+            await db.from('receivables').update({ paid_amount: insertData.paid_amount, remaining_amount: insertData.remaining_amount, updated_at: insertData.updated_at }).eq('transaction_id', insertData.transaction_id);
+          }
+          created++;
         }
-      } else {
-        created++;
       }
     }
 
@@ -54,18 +68,35 @@ export async function POST(request: NextRequest) {
     const { data: activeReceivables, error: arError } = await db.from('receivables').select('id, paid_amount, status, transaction_id').eq('status', 'active').limit(2000);
     if (arError) throw arError;
 
+    // Batch fetch all transactions for active receivables (eliminates N+1)
+    const arTxIds = [...new Set((activeReceivables || []).map((r: any) => r.transaction_id).filter(Boolean))];
+    const { data: arTransactions } = arTxIds.length > 0
+      ? await db.from('transactions').select('id, total, paid_amount').in('id', arTxIds)
+      : { data: [] };
+    const arTxMap = Object.fromEntries((arTransactions || []).map((t: any) => [t.id, t]));
+
+    // Build all update promises
     let synced = 0;
-    for (const r of activeReceivables) {
-      const { data: tx } = await db.from('transactions').select('total, paid_amount').eq('id', r.transaction_id).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const syncPromises: any[] = [];
+    for (const r of activeReceivables || []) {
+      const tx = arTxMap[r.transaction_id];
       if (!tx) continue;
 
       if (tx.paid_amount >= tx.total && r.status === 'active') {
-        await db.from('receivables').update({ paid_amount: tx.total, remaining_amount: 0, status: 'paid', updated_at: new Date().toISOString() }).eq('id', r.id);
+        syncPromises.push(
+          db.from('receivables').update({ paid_amount: tx.total, remaining_amount: 0, status: 'paid', updated_at: new Date().toISOString() }).eq('id', r.id)
+        );
         synced++;
       } else if (tx.paid_amount !== r.paid_amount) {
-        await db.from('receivables').update({ paid_amount: tx.paid_amount, remaining_amount: tx.total - tx.paid_amount, updated_at: new Date().toISOString() }).eq('id', r.id);
+        syncPromises.push(
+          db.from('receivables').update({ paid_amount: tx.paid_amount, remaining_amount: tx.total - tx.paid_amount, updated_at: new Date().toISOString() }).eq('id', r.id)
+        );
         synced++;
       }
+    }
+    if (syncPromises.length > 0) {
+      await Promise.all(syncPromises);
     }
 
     return NextResponse.json({ created, synced, message: `${created} piutang baru dibuat, ${synced} diperbarui` });

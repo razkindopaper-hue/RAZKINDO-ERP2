@@ -375,7 +375,20 @@ async function updateGoodsStatus(existingRequest: any, data: any) {
     let items: any[] = [];
     try { items = existingRequest.purchase_items ? JSON.parse(existingRequest.purchase_items) : []; } catch { items = []; }
 
-    for (const item of items) {
+    // Pre-fetch all products and unit_products upfront (eliminates N+1)
+    const productIds = [...new Set(items.map((item: any) => item.productId).filter(Boolean))];
+    const { data: prefetchedProducts } = productIds.length > 0
+      ? await db.from('products').select('id, global_stock, avg_hpp').in('id', productIds)
+      : { data: [] };
+    const productMap = Object.fromEntries((prefetchedProducts || []).map((p: any) => [p.id, p]));
+
+    let unitProductMap: Record<string, any> = {};
+    if (existingRequest.unit_id && productIds.length > 0) {
+      const { data: prefetchedUnitProducts } = await db.from('unit_products').select('id, stock, product_id').eq('unit_id', existingRequest.unit_id).in('product_id', productIds);
+      unitProductMap = Object.fromEntries((prefetchedUnitProducts || []).map((up: any) => [up.product_id, up]));
+    }
+
+    await Promise.all(items.map(async (item: any) => {
       const stockQty = item.qtyInSubUnit ?? item.qty;
       const purchaseHpp = item.hpp || item.price || 0;
 
@@ -387,8 +400,8 @@ async function updateGoodsStatus(existingRequest: any, data: any) {
       });
       if (rpcError) {
         // Fallback to non-atomic if RPC fails
-        const { data: product } = await db.from('products').select('global_stock, avg_hpp').eq('id', item.productId).maybeSingle();
-        if (!product) continue;
+        const product = productMap[item.productId];
+        if (!product) return;
         const oldStock = product.global_stock || 0;
         const oldHpp = product.avg_hpp || 0;
         let newAvgHpp = purchaseHpp;
@@ -399,14 +412,14 @@ async function updateGoodsStatus(existingRequest: any, data: any) {
       }
 
       if (existingRequest.unit_id) {
-        const { data: unitProduct } = await db.from('unit_products').select('id, stock').eq('unit_id', existingRequest.unit_id).eq('product_id', item.productId).maybeSingle();
+        const unitProduct = unitProductMap[item.productId];
         if (unitProduct) {
           await db.from('unit_products').update({ stock: (unitProduct.stock || 0) + stockQty }).eq('id', unitProduct.id);
         } else {
           await db.from('unit_products').insert({ id: generateId(), unit_id: existingRequest.unit_id, product_id: item.productId, stock: stockQty });
         }
       }
-    }
+    }));
 
     createLog(db, { type: 'activity', userId: existingRequest.processed_by_id || existingRequest.request_by_id, action: 'stock_updated_from_purchase', entity: 'finance_request', entityId: existingRequest.id, message: `Stok diupdate dari penerimaan barang: ${items.length} produk` });
 
@@ -458,14 +471,16 @@ async function createPurchaseTransaction(existingRequest: any, data: any): Promi
   const { data: transaction, error } = await db.from('transactions').insert(transactionData).select().single();
   if (error) throw error;
 
-  for (const item of items) {
-    const stockQty = item.qtyInSubUnit ?? item.qty;
-    await db.from('transaction_items').insert(toSnakeCase({
+  // Batch insert all transaction items in one query (eliminates N+1)
+  if (items.length > 0) {
+    const allItems = items.map((item: any) => toSnakeCase({
       id: generateId(), transactionId: transaction.id, productId: item.productId, productName: item.productName,
-      qty: item.qty, qtyInSubUnit: stockQty, qtyUnitType: item.qtyUnitType || 'sub',
+      qty: item.qty, qtyInSubUnit: item.qtyInSubUnit ?? item.qty, qtyUnitType: item.qtyUnitType || 'sub',
       price: item.price || item.hpp || 0, hpp: item.hpp || item.price || 0,
       subtotal: item.qty * (item.price || item.hpp || 0), profit: 0,
     }));
+    const { error: itemsError } = await db.from('transaction_items').insert(allItems);
+    if (itemsError) throw itemsError;
   }
 
   if (existingRequest.supplier_id) {

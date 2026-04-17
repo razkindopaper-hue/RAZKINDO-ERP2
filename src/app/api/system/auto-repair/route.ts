@@ -271,6 +271,162 @@ export async function POST(request: NextRequest) {
       results.push({ check: 'RAM Usage', status: 'skipped', message: 'Tidak dapat membaca info RAM' });
     }
 
+    // ===== DATA CONSISTENCY CHECKS =====
+
+    // 15. Fix orphaned user_units (users that don't exist)
+    try {
+      const { data: allUserUnits } = await db.from('user_units').select('id, user_id');
+      if (allUserUnits && allUserUnits.length > 0) {
+        const { data: allUsers } = await db.from('users').select('id');
+        const validUserIds = new Set((allUsers || []).map((u: any) => u.id));
+        const orphaned = allUserUnits.filter((uu: any) => !validUserIds.has(uu.user_id));
+        if (orphaned.length > 0) {
+          const { error: delErr } = await db.from('user_units').delete().in('id', orphaned.map((o: any) => o.id));
+          if (delErr) {
+            results.push({ check: 'User Units Orphan', status: 'failed', message: `Gagal hapus: ${delErr.message}` });
+          } else {
+            results.push({ check: 'User Units Orphan', status: 'fixed', message: `Dihapus ${orphaned.length} user_units tanpa user terkait`, details: { count: orphaned.length } });
+          }
+        } else {
+          results.push({ check: 'User Units Orphan', status: 'passed', message: 'Tidak ada user_units orphan' });
+        }
+      } else {
+        results.push({ check: 'User Units Orphan', status: 'passed', message: 'Tidak ada user_units' });
+      }
+    } catch (err: any) {
+      results.push({ check: 'User Units Orphan', status: 'failed', message: `Error: ${err.message}` });
+    }
+
+    // 16. Fix transactions with invalid unit references
+    try {
+      const { data: allUnits } = await db.from('units').select('id');
+      const validUnitIds = new Set((allUnits || []).map((u: any) => u.id));
+      const { data: txWithInvalidUnit, error: txErr } = await db.from('transactions').select('id, unit_id').not('unit_id', 'is', null);
+      if (txErr) {
+        results.push({ check: 'Transaksi Unit Valid', status: 'failed', message: `Query error: ${txErr.message}` });
+      } else if (txWithInvalidUnit && txWithInvalidUnit.length > 0) {
+        const invalid = txWithInvalidUnit.filter((t: any) => !validUnitIds.has(t.unit_id));
+        if (invalid.length > 0) {
+          // Set orphaned transactions to null unit
+          const { error: updErr } = await db.from('transactions').update({ unit_id: null }).in('id', invalid.map((t: any) => t.id));
+          if (updErr) {
+            results.push({ check: 'Transaksi Unit Valid', status: 'failed', message: `Update error: ${updErr.message}` });
+          } else {
+            results.push({ check: 'Transaksi Unit Valid', status: 'fixed', message: `Diperbaiki ${invalid.length} transaksi dengan unit tidak valid (dibuat null)`, details: { count: invalid.length } });
+          }
+        } else {
+          results.push({ check: 'Transaksi Unit Valid', status: 'passed', message: 'Semua transaksi memiliki unit valid' });
+        }
+      } else {
+        results.push({ check: 'Transaksi Unit Valid', status: 'passed', message: 'Tidak ada transaksi' });
+      }
+    } catch (err: any) {
+      results.push({ check: 'Transaksi Unit Valid', status: 'failed', message: `Error: ${err.message}` });
+    }
+
+    // 17. Fix orphaned receivable_follow_ups (receivables that don't exist)
+    try {
+      const { data: allFollowUps } = await db.from('receivable_follow_ups').select('id, receivable_id');
+      if (allFollowUps && allFollowUps.length > 0) {
+        const { data: allReceivables } = await db.from('receivables').select('id');
+        const validRecIds = new Set((allReceivables || []).map((r: any) => r.id));
+        const orphaned = allFollowUps.filter((fu: any) => !validRecIds.has(fu.receivable_id));
+        if (orphaned.length > 0) {
+          const { error: delErr } = await db.from('receivable_follow_ups').delete().in('id', orphaned.map((o: any) => o.id));
+          if (delErr) {
+            results.push({ check: 'Follow Up Orphan', status: 'failed', message: `Gagal hapus: ${delErr.message}` });
+          } else {
+            results.push({ check: 'Follow Up Orphan', status: 'fixed', message: `Dihapus ${orphaned.length} follow up tanpa piutang terkait`, details: { count: orphaned.length } });
+          }
+        } else {
+          results.push({ check: 'Follow Up Orphan', status: 'passed', message: 'Tidak ada follow up orphan' });
+        }
+      } else {
+        results.push({ check: 'Follow Up Orphan', status: 'passed', message: 'Tidak ada follow up' });
+      }
+    } catch (err: any) {
+      results.push({ check: 'Follow Up Orphan', status: 'failed', message: `Error: ${err.message}` });
+    }
+
+    // 18. Fix transaction_items without parent transaction
+    try {
+      const { data: allItems } = await db.from('transaction_items').select('id, transaction_id');
+      if (allItems && allItems.length > 0) {
+        const { data: allTx } = await db.from('transactions').select('id');
+        const validTxIds = new Set((allTx || []).map((t: any) => t.id));
+        const orphaned = allItems.filter((i: any) => !validTxIds.has(i.transaction_id));
+        if (orphaned.length > 0) {
+          const { error: delErr } = await db.from('transaction_items').delete().in('id', orphaned.map((o: any) => o.id));
+          if (delErr) {
+            results.push({ check: 'Transaction Items Orphan', status: 'failed', message: `Gagal hapus: ${delErr.message}` });
+          } else {
+            results.push({ check: 'Transaction Items Orphan', status: 'fixed', message: `Dihapus ${orphaned.length} item transaksi tanpa parent`, details: { count: orphaned.length } });
+          }
+        } else {
+          results.push({ check: 'Transaction Items Orphan', status: 'passed', message: 'Tidak ada item transaksi orphan' });
+        }
+      } else {
+        results.push({ check: 'Transaction Items Orphan', status: 'passed', message: 'Tidak ada item transaksi' });
+      }
+    } catch (err: any) {
+      results.push({ check: 'Transaction Items Orphan', status: 'failed', message: `Error: ${err.message}` });
+    }
+
+    // 19. Clean old build artifacts in /tmp (build_fullstack_*)
+    try {
+      const tmpDir = '/tmp';
+      const entries = readdirSync(tmpDir, { withFileTypes: true });
+      const buildDirs = entries.filter(e => e.isDirectory() && e.name.startsWith('build_fullstack_'));
+      if (buildDirs.length > 0) {
+        let totalSize = 0;
+        for (const dir of buildDirs) {
+          const size = getDirSize(join(tmpDir, dir.name));
+          totalSize += size;
+          rmSync(join(tmpDir, dir.name), { recursive: true, force: true });
+        }
+        results.push({ check: 'Build Artifacts (/tmp)', status: 'fixed', message: `Dihapus ${buildDirs.length} folder build lama`, details: { count: buildDirs.length, freed: totalSize } });
+      } else {
+        results.push({ check: 'Build Artifacts (/tmp)', status: 'passed', message: 'Tidak ada build artifact lama' });
+      }
+    } catch (err: any) {
+      results.push({ check: 'Build Artifacts (/tmp)', status: 'failed', message: `Error: ${err.message}` });
+    }
+
+    // 20. Clean browser caches (ms-playwright, puppeteer) if project doesn't use them
+    try {
+      let freedBrowser = 0;
+      const pwPath = '/home/z/.cache/ms-playwright';
+      const ppPath = '/home/z/.cache/puppeteer';
+      let usesBrowserLibs = false;
+      try {
+        const { readFileSync } = await import('fs');
+        const pkg = JSON.parse(readFileSync('/home/z/my-project/package.json', 'utf-8'));
+        const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+        usesBrowserLibs = 'playwright' in allDeps || 'puppeteer' in allDeps;
+      } catch { /* skip */ }
+      if (!usesBrowserLibs) {
+        if (existsSync(pwPath)) {
+          const s = getDirSize(pwPath);
+          rmSync(pwPath, { recursive: true, force: true });
+          freedBrowser += s;
+        }
+        if (existsSync(ppPath)) {
+          const s = getDirSize(ppPath);
+          rmSync(ppPath, { recursive: true, force: true });
+          freedBrowser += s;
+        }
+        if (freedBrowser > 0) {
+          results.push({ check: 'Browser Cache (tidak dipakai)', status: 'fixed', message: `Dihapus ${formatBytes(freedBrowser)} cache browser`, details: { freed: freedBrowser } });
+        } else {
+          results.push({ check: 'Browser Cache (tidak dipakai)', status: 'passed', message: 'Tidak ada cache browser' });
+        }
+      } else {
+        results.push({ check: 'Browser Cache', status: 'skipped', message: 'Project menggunakan Playwright/Puppeteer, cache dipertahankan' });
+      }
+    } catch (err: any) {
+      results.push({ check: 'Browser Cache', status: 'skipped', message: `Tidak dapat membersihkan: ${err.message}` });
+    }
+
     // Summary
     const passed = results.filter(r => r.status === 'passed').length;
     const fixed = results.filter(r => r.status === 'fixed').length;

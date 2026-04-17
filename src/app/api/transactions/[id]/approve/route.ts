@@ -192,14 +192,15 @@ export async function POST(
       profit: txCamel.totalProfit
     });
 
-    // Check for low stock alerts
-    for (const item of txCamel.items || []) {
-      const { data: product } = await db
-        .from('products')
-        .select('id, name, global_stock, min_stock')
-        .eq('id', item.productId)
-        .single();
+    // Check for low stock alerts — batch fetch fresh product data (eliminates N+1)
+    const { data: freshStockProducts } = await db
+      .from('products')
+      .select('id, name, global_stock, min_stock')
+      .in('id', allItemProductIds);
+    const freshProductMap = Object.fromEntries((freshStockProducts || []).map((p: any) => [p.id, p]));
 
+    for (const item of txCamel.items || []) {
+      const product = freshProductMap[item.productId];
       if (product && product.global_stock <= product.min_stock) {
         createEvent(db, 'stock_low', {
           productId: product.id,
