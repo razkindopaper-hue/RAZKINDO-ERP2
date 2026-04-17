@@ -72,3 +72,29 @@ Stage Summary:
 - Direct expense creation bypasses finance request approval workflow
 - 2-step workflow: Step 1 (HPP/Profit pool), Step 2 (Bank/Brankas physical)
 - Expenses are tracked as Transaction type='expense' with EXP- invoice prefix
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Fix employee unit assignment not saving + pool reset not working
+
+Work Log:
+- Investigated DB schema: user_units table has id (NOT NULL, no default) + created_at columns
+- Found root cause: API insert only sent user_id + unit_id, missing required id column
+- Error was caught silently by try/catch with only console.warn
+- Fixed: Added id: generateId() to each user_units insert row
+- Fixed: Changed silent catch to return 500 error to user
+- Investigated DB schema: settings table has id (NOT NULL, no default), created_at (default CURRENT_TIMESTAMP), updated_at (NOT NULL, no default)
+- Found pool settings still had non-zero values (HPP=80135, Profit=34864) despite reset attempt
+- Root cause: pools route still used Supabase REST upsert without id — same bug as settings fix
+- Verified via direct Supabase REST API test: upsert without id fails with NOT NULL constraint error
+- Rewrote pools route: created upsertSetting() helper using check-existing → update/insert pattern
+- Also fixed same bug in ai/discrepancy/route.ts (2 more upsert calls)
+- Verified: no more settings upsert calls remain in codebase
+- Pool values confirmed at 0 in DB after fix
+
+Stage Summary:
+- Employee unit assignment now works: generates id for user_units rows
+- Pool reset to 0 now works: all settings operations use safe upsert pattern
+- Discrepancy fix route also fixed to prevent future regression
+- TypeScript compiles with 0 errors

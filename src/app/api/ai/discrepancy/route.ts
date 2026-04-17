@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { verifyAndGetAuthUser } from '@/lib/token';
-import { createLog } from '@/lib/supabase-helpers';
+import { createLog, generateId } from '@/lib/supabase-helpers';
 
 function rp(n: number) {
   return 'Rp ' + Math.round(n).toLocaleString('id-ID');
@@ -243,14 +243,16 @@ async function adjustDiscrepancies(userId: string) {
   const roundedHpp = Math.round(actualHppSum);
   const roundedProfit = Math.round(actualProfitSum);
 
-  await db.from('settings').upsert(
-    { key: 'pool_hpp_paid_balance', value: JSON.stringify(roundedHpp), updated_at: new Date().toISOString() },
-    { onConflict: 'key' }
-  );
-  await db.from('settings').upsert(
-    { key: 'pool_profit_paid_balance', value: JSON.stringify(roundedProfit), updated_at: new Date().toISOString() },
-    { onConflict: 'key' }
-  );
+  // Safe upsert: check-existing → update/insert (Supabase REST doesn't auto-generate id)
+  for (const [key, val] of [['pool_hpp_paid_balance', roundedHpp], ['pool_profit_paid_balance', roundedProfit]] as [string, number][]) {
+    const now = new Date().toISOString();
+    const { data: existing } = await db.from('settings').select('key').eq('key', key).maybeSingle();
+    if (existing) {
+      await db.from('settings').update({ value: JSON.stringify(val), updated_at: now }).eq('key', key);
+    } else {
+      await db.from('settings').insert({ id: generateId(), key, value: JSON.stringify(val), created_at: now, updated_at: now });
+    }
+  }
   fixes.push(`Pool HPP disinkronkan ke ${rp(roundedHpp)}`);
   fixes.push(`Pool Profit disinkronkan ke ${rp(roundedProfit)}`);
 

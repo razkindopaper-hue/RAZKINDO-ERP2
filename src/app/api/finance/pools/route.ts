@@ -4,6 +4,40 @@ import { verifyAuthUser } from '@/lib/token';
 import { enforceFinanceRole } from '@/lib/require-auth';
 import { createLog, generateId } from '@/lib/supabase-helpers';
 
+// ============================================
+// HELPER: Safe upsert for settings table
+// Supabase REST doesn't auto-generate id, created_at, or updated_at.
+// MUST use check-existing → update/insert pattern.
+// ============================================
+async function upsertSetting(key: string, value: string): Promise<void> {
+  const now = new Date().toISOString();
+
+  const { data: existing } = await db
+    .from('settings')
+    .select('key')
+    .eq('key', key)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await db
+      .from('settings')
+      .update({ value, updated_at: now })
+      .eq('key', key);
+    if (error) throw new Error(`Failed to update setting ${key}: ${error.message}`);
+  } else {
+    const { error } = await db
+      .from('settings')
+      .insert({
+        id: generateId(),
+        key,
+        value,
+        created_at: now,
+        updated_at: now,
+      });
+    if (error) throw new Error(`Failed to insert setting ${key}: ${error.message}`);
+  }
+}
+
 // GET /api/finance/pools
 // Returns current pool balances for the 2-step finance workflow:
 // - hppPaidBalance: HPP Sudah Terbayar (cost recovery from customer payments) — from settings
@@ -97,8 +131,6 @@ export async function PUT(request: NextRequest) {
       investorFund = Math.max(0, Math.round(Number(investorFund)));
     }
 
-    const now = new Date().toISOString();
-
     // If totalPhysical is provided, auto-calculate HPP or Profit
     if (totalPhysical !== undefined && totalPhysical !== null) {
       const totalPhysicalNum = Math.round(Number(totalPhysical));
@@ -138,19 +170,10 @@ export async function PUT(request: NextRequest) {
         }, { status: 400 });
       }
 
-      // Update all three settings with upsert (include id for new rows + updated_at)
-      await db.from('settings').upsert(
-        { key: 'pool_hpp_paid_balance', value: JSON.stringify(finalHpp), updated_at: now },
-        { onConflict: 'key' }
-      );
-      await db.from('settings').upsert(
-        { key: 'pool_profit_paid_balance', value: JSON.stringify(finalProfit), updated_at: now },
-        { onConflict: 'key' }
-      );
-      await db.from('settings').upsert(
-        { key: 'pool_investor_fund', value: JSON.stringify(investorSafe), updated_at: now },
-        { onConflict: 'key' }
-      );
+      // Update all three settings using safe upsert (check-existing → update/insert)
+      await upsertSetting('pool_hpp_paid_balance', JSON.stringify(finalHpp));
+      await upsertSetting('pool_profit_paid_balance', JSON.stringify(finalProfit));
+      await upsertSetting('pool_investor_fund', JSON.stringify(investorSafe));
 
       try {
         createLog(db, {
@@ -174,10 +197,7 @@ export async function PUT(request: NextRequest) {
 
     // Standalone investor fund update
     if (investorFundInput !== undefined && hppPaidBalance === undefined && profitPaidBalance === undefined) {
-      await db.from('settings').upsert(
-        { key: 'pool_investor_fund', value: JSON.stringify(investorFund), updated_at: now },
-        { onConflict: 'key' }
-      );
+      await upsertSetting('pool_investor_fund', JSON.stringify(investorFund));
 
       const { data: currentHpp } = await db.from('settings').select('value').eq('key', 'pool_hpp_paid_balance').maybeSingle();
       const { data: currentProfit } = await db.from('settings').select('value').eq('key', 'pool_profit_paid_balance').maybeSingle();
@@ -221,7 +241,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { action } = body;
-    const now = new Date().toISOString();
 
     if (action === 'sync_from_payments') {
       // Sync pool balances from actual payment sums
@@ -245,14 +264,9 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
       const investorFund = current ? (parseFloat(JSON.parse(current.value)) || 0) : 0;
 
-      await db.from('settings').upsert(
-        { key: 'pool_hpp_paid_balance', value: JSON.stringify(roundedHpp), updated_at: now },
-        { onConflict: 'key' }
-      );
-      await db.from('settings').upsert(
-        { key: 'pool_profit_paid_balance', value: JSON.stringify(roundedProfit), updated_at: now },
-        { onConflict: 'key' }
-      );
+      // Use safe upsert instead of Supabase REST upsert
+      await upsertSetting('pool_hpp_paid_balance', JSON.stringify(roundedHpp));
+      await upsertSetting('pool_profit_paid_balance', JSON.stringify(roundedProfit));
 
       const totalPool = roundedHpp + roundedProfit + investorFund;
 
@@ -277,19 +291,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'reset_to_zero') {
-      // Reset all pool balances to 0
-      await db.from('settings').upsert(
-        { key: 'pool_hpp_paid_balance', value: JSON.stringify(0), updated_at: now },
-        { onConflict: 'key' }
-      );
-      await db.from('settings').upsert(
-        { key: 'pool_profit_paid_balance', value: JSON.stringify(0), updated_at: now },
-        { onConflict: 'key' }
-      );
-      await db.from('settings').upsert(
-        { key: 'pool_investor_fund', value: JSON.stringify(0), updated_at: now },
-        { onConflict: 'key' }
-      );
+      // Reset all pool balances to 0 using safe upsert
+      await upsertSetting('pool_hpp_paid_balance', JSON.stringify(0));
+      await upsertSetting('pool_profit_paid_balance', JSON.stringify(0));
+      await upsertSetting('pool_investor_fund', JSON.stringify(0));
 
       try {
         createLog(db, {

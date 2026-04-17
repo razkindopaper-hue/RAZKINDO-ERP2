@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
-import { toCamelCase, rowsToCamelCase } from '@/lib/supabase-helpers';
+import { toCamelCase, rowsToCamelCase, generateId } from '@/lib/supabase-helpers';
 import bcrypt from 'bcryptjs';
 import { enforceSuperAdmin } from '@/lib/require-auth';
 import { invalidateUserAuthCache } from '@/lib/token';
@@ -65,10 +65,22 @@ export async function PATCH(
     if (data.name !== undefined) updateData.name = data.name;
     if (data.phone !== undefined) updateData.phone = data.phone;
     if (data.role !== undefined) {
-      if (!VALID_ROLES.includes(data.role)) {
+      const isStandardRole = VALID_ROLES.includes(data.role);
+      // Custom role users (e.g. OB, Sopir, Security) have a customRoleId — their role field
+      // is derived from custom_roles.name and should NOT be validated against VALID_ROLES.
+      const isCustomRoleUser = !!existingCamel.customRoleId;
+
+      if (!isStandardRole && !isCustomRoleUser) {
         return NextResponse.json({ error: 'Role tidak valid' }, { status: 400 });
       }
-      updateData.role = data.role;
+      // Only update role for standard roles; custom role users keep their existing role
+      if (isStandardRole) {
+        updateData.role = data.role;
+      }
+      // If switching from custom role to standard role, also clear customRoleId
+      if (isCustomRoleUser && isStandardRole) {
+        updateData.custom_role_id = null;
+      }
     }
     if (data.unitId !== undefined) updateData.unit_id = data.unitId || null;
     if (data.status !== undefined) {
@@ -137,13 +149,18 @@ export async function PATCH(
         // Delete existing user_units for this user
         await db.from('user_units').delete().eq('user_id', id);
 
-        // Insert new ones
+        // Insert new ones — MUST provide id since Supabase REST doesn't auto-generate
         if (selectedUnitIds.length > 0) {
           const rows = selectedUnitIds.map((unitId: string) => ({
+            id: generateId(),
             user_id: id,
             unit_id: unitId,
           }));
-          await db.from('user_units').insert(rows);
+          const { error: insertErr } = await db.from('user_units').insert(rows);
+          if (insertErr) {
+            console.error('[UpdateUser] user_units insert failed:', insertErr.message);
+            return NextResponse.json({ error: 'Gagal menyimpan unit karyawan' }, { status: 500 });
+          }
 
           // Also update primary unit_id to first unit for backward compat
           await db.from('users').update({ unit_id: selectedUnitIds[0] }).eq('id', id);
@@ -152,7 +169,8 @@ export async function PATCH(
           await db.from('users').update({ unit_id: null }).eq('id', id);
         }
       } catch (uuErr: any) {
-        console.warn('[UpdateUser] user_units update failed:', uuErr.message);
+        console.error('[UpdateUser] user_units update failed:', uuErr.message);
+        return NextResponse.json({ error: 'Gagal memperbarui unit karyawan' }, { status: 500 });
       }
     }
 
