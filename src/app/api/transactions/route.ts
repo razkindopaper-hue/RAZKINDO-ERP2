@@ -936,6 +936,7 @@ export async function POST(request: NextRequest) {
                 remaining_amount: remainingAmount,
                 assigned_to_id: data.createdById,
                 priority: data.dueDate && new Date(data.dueDate) < new Date() ? 'high' : 'normal',
+                updated_at: new Date().toISOString(),
               });
             } catch (receivableError) {
               console.error('[RECEIVABLE] Auto-create error (non-blocking):', receivableError);

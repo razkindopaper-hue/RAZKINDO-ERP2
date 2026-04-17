@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
     const insertData = toSnakeCase({
       id: generateId(), title: title.trim(), description: description?.trim() || null, type: type || 'general', priority: priority || 'normal',
       assignedToId, assignedById: authResult.userId, status: 'pending', dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+      updatedAt: new Date().toISOString(),
     });
 
     const { data: task, error } = await db.from('sales_tasks').insert(insertData).select(`

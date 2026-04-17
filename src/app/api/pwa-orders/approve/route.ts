@@ -369,6 +369,7 @@ export async function POST(request: NextRequest) {
           remaining_amount: total,
           assigned_to_id: txCamel.createdById,
           priority: 'normal',
+          updated_at: new Date().toISOString(),
         });
       } catch (recvErr) {
         console.error('[PWA APPROVE] Failed to create receivable (non-blocking):', recvErr);

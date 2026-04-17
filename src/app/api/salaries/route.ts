@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
     const frData = toSnakeCase({
       id: generateId(), type: 'salary', requestById, unitId: data.unitId,
       amount: totalAmount, description, notes: data.notes, status: 'pending',
+      updatedAt: new Date().toISOString(),
     });
     const { data: financeRequest, error: frError } = await db.from('finance_requests').insert(frData).select().single();
     if (frError) throw frError;

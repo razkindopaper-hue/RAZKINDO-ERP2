@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
       courierId: data.courierId,
       notes: data.notes,
       status: 'pending',
+      updatedAt: new Date().toISOString(),
     });
 
     const { data: financeRequest, error } = await db.from('finance_requests').insert(insertData).select().single();

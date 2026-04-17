@@ -198,3 +198,23 @@ Stage Summary:
 - Error messages now properly translated: "Insufficient balance" → "Saldo Brankas/Akun bank tidak mencukupi"
 - Null-safe HPP/Profit calculations prevent NaN edge cases
 - Server verified healthy after changes (HTTP 200)
+
+---
+Task ID: supplier-creation-fix
+Agent: Main Agent
+Task: Fix "tidak bisa menambahkan supplier" (cannot add supplier)
+
+Work Log:
+- Checked dev logs: POST /api/suppliers returning 500
+- Found error: `supplierCamel.id` is null because Supabase insert returns null (error not checked)
+- Root cause: `updated_at` column has NOT NULL constraint but no DEFAULT value; insert doesn't include it
+- Fixed suppliers/route.ts: added `updated_at: new Date().toISOString()` + error checking
+- Found same issue in 7 other files (products, receivables, finance_requests, sales_tasks)
+- Fixed all 8 insert calls across 7 files
+- Verified supplier creation returns 200 OK
+
+Stage Summary:
+- Files modified: suppliers/route.ts, products/route.ts, finance/receivables/route.ts, finance/receivables/sync/route.ts, pwa-orders/approve/route.ts, transactions/route.ts, finance/requests/route.ts, salaries/route.ts, sales-tasks/route.ts
+- Root cause: DB tables have `updated_at NOT NULL` without DEFAULT; Supabase REST API doesn't auto-generate it
+- All insert operations now include `updated_at: new Date().toISOString()`
+- Verified: POST /api/suppliers returns 200 with valid data
