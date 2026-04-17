@@ -140,8 +140,11 @@ export async function POST(
               let newAvgHpp = oldAvgHpp;
               if (newGlobalStock > 0 && oldGlobalStock > 0) {
                 const totalValueBefore = oldGlobalStock * oldAvgHpp;
-                const removedValue = stockQty * (Number(itemCamel.hpp) || 0);
-                newAvgHpp = Math.max(0, Math.round((totalValueBefore - removedValue) / newGlobalStock));
+                const itemCostPerUnit = Number(itemCamel.hpp) || Number(itemCamel.price) || 0;
+                const removedValue = stockQty * itemCostPerUnit;
+                if (removedValue > 0) {
+                  newAvgHpp = Math.max(0, Math.round((totalValueBefore - removedValue) / newGlobalStock));
+                }
               } else if (newGlobalStock <= 0) {
                 newAvgHpp = 0;
               }
@@ -157,8 +160,11 @@ export async function POST(
               let newAvgHpp = oldAvgHpp;
               if (newStock > 0 && oldGlobalStock > 0) {
                 const totalValueBefore = oldGlobalStock * oldAvgHpp;
-                const removedValue = stockQty * (Number(itemCamel.hpp) || 0);
-                newAvgHpp = Math.max(0, Math.round((totalValueBefore - removedValue) / newStock));
+                const itemCostPerUnit = Number(itemCamel.hpp) || Number(itemCamel.price) || 0;
+                const removedValue = stockQty * itemCostPerUnit;
+                if (removedValue > 0) {
+                  newAvgHpp = Math.max(0, Math.round((totalValueBefore - removedValue) / newStock));
+                }
               } else if (newStock <= 0) {
                 newAvgHpp = 0;
               }
