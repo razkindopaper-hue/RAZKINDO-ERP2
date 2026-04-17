@@ -43,7 +43,6 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
-  RotateCcw,
   Receipt,
 } from 'lucide-react';
 
@@ -575,7 +574,7 @@ export default function FinanceModule() {
   // Sync preview state
   const [syncPreviewData, setSyncPreviewData] = useState<any>(null);
   const [showSyncPreview, setShowSyncPreview] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
 
   const previewSyncMutation = useMutation({
     mutationFn: async () => {
@@ -618,23 +617,6 @@ export default function FinanceModule() {
     }
   });
 
-  const resetPoolsMutation = useMutation({
-    mutationFn: async () => {
-      return apiFetch('/api/finance/pools', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'reset_to_zero' })
-      });
-    },
-    onSuccess: (data: any) => {
-      toast.success(data.message || 'Pool dana berhasil direset ke 0');
-      queryClient.invalidateQueries({ queryKey: ['finance-pools'] });
-    },
-    onError: (err: Error) => {
-      toast.error(err.message);
-    }
-  });
-
-  // Deposit to bank account mutation
   const bankDepositMutation = useMutation({
     mutationFn: async ({ id, amount, description }: { id: string; amount: number; description?: string }) => {
       return apiFetch(`/api/finance/bank-accounts/${id}/deposit`, {
@@ -790,45 +772,6 @@ export default function FinanceModule() {
                 <RefreshCw className={`w-3.5 h-3.5 ${syncPoolsMutation.isPending ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">Sinkron</span>
               </Button>
-              {/* Reset to zero button */}
-              <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                    disabled={resetPoolsMutation.isPending}
-                  >
-                    <RotateCcw className={`w-3.5 h-3.5 ${resetPoolsMutation.isPending ? 'animate-spin' : ''}`} />
-                    <span className="hidden sm:inline">Reset 0</span>
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Reset Pool Dana ke 0?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Tindakan ini akan mengatur semua pool dana (HPP, Profit, dan Dana Lain-lain) menjadi 0.
-                      {fundBalances.totalPool > 0 && (
-                        <span className="block mt-2 font-semibold text-red-600">
-                          Total pool saat ini: {formatCurrency(fundBalances.totalPool)}
-                        </span>
-                      )}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
-                    <AlertDialogCancel>Batal</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => {
-                        resetPoolsMutation.mutate();
-                        setShowResetConfirm(false);
-                      }}
-                      className="bg-red-600 hover:bg-red-700"
-                    >
-                      Ya, Reset ke 0
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
               <Dialog open={showPoolDialog} onOpenChange={(open) => { setShowPoolDialog(open); if (open) setPoolFormKey(k => k + 1); }}>
                 <DialogTrigger asChild>
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1">
@@ -843,12 +786,12 @@ export default function FinanceModule() {
                       Update Komposisi Dana
                     </DialogTitle>
                     <DialogDescription>
-                      Atur pembagian pool dana. Total fisik = Rekening + Brankas = {formatCurrency(fundBalances.totalCashInBoxes + fundBalances.totalInBanks)}
+                      Atur pembagian pool dana. Total fisik = Rekening + Brankas + Kurir = {formatCurrency(fundBalances.totalCashInBoxes + fundBalances.totalInBanks + fundBalances.totalWithCouriers)}
                     </DialogDescription>
                   </DialogHeader>
                   <PoolAdjustForm
                     key={poolFormKey}
-                    totalPhysical={fundBalances.totalCashInBoxes + fundBalances.totalInBanks}
+                    totalPhysical={fundBalances.totalCashInBoxes + fundBalances.totalInBanks + fundBalances.totalWithCouriers}
                     currentHpp={fundBalances.hppPaidBalance}
                     currentProfit={fundBalances.profitPaidBalance}
                     currentInvestorFund={fundBalances.investorFund}

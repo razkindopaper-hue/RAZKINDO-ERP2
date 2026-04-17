@@ -94,7 +94,7 @@ export function PoolAdjustForm({
       <div className="p-3 rounded-lg bg-muted">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground">Total Dana Fisik (Rekening + Brankas)</p>
+            <p className="text-xs text-muted-foreground">Total Dana Fisik (Rekening + Brankas + Kurir)</p>
             <p className="text-xl font-bold">{formatCurrency(totalPhysical)}</p>
           </div>
           <Building2 className="w-6 h-6 text-muted-foreground" />
