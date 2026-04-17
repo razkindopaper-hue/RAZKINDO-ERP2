@@ -23,3 +23,29 @@ Stage Summary:
 - Reset 0 completely removed ✓
 - Sales target API fully functional (GET/POST/PATCH/DELETE all work via Prisma) ✓
 - All changes compile without TypeScript errors ✓
+---
+Task ID: 2
+Agent: main
+Task: Fix pool dana sync HPP/profit calculation, courier handover RPC, and sales target table
+
+Work Log:
+- Investigated pool dana sync issue: found current settings (HPP=220k, Profit=135k) are correct
+- Verified Prisma sync calculation matches: handoverHpp=220k, handoverProfit=135k
+- Fixed `process_courier_handover` RPC to atomically handle hpp_pending/profit_pending deduction
+  - Added p_hpp_portion and p_profit_portion parameters
+  - RPC now calculates portions if not provided, deducts hpp_pending/profit_pending from courier_cash
+  - Sets hpp_portion/profit_portion on courier_handovers record atomically
+- Updated courier handover route to pass hpp/profit portions to RPC and removed redundant manual updates
+- Fixed SalesTarget table name: `@@map("SalesTarget")` → `@@map("sales_targets")` in Prisma schema
+- Renamed database table from "SalesTarget" to "sales_targets" for Supabase REST compatibility
+- Rewrote sales targets API routes (GET/POST/PATCH/DELETE) to use Supabase REST instead of Prisma
+- Fixed dashboard API to use Supabase REST for sales targets (snake_case mapping)
+- Reloaded PostgREST schema cache after table rename
+- Verified all APIs working: sales targets CRUD, pool dana sync, pool balance calculation
+
+Stage Summary:
+- Pool dana sync correctly calculates HPP/profit from handover records
+- Courier handover RPC now atomically handles hpp/profit portions
+- Sales target table accessible via Supabase REST API (was broken due to PascalCase table name)
+- Sales target CRUD operations verified working
+- Pool dana selisih = 0 (total pool = total fisik)

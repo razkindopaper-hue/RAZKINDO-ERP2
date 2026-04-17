@@ -76,9 +76,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Kurir hanya bisa melakukan handover untuk diri sendiri' }, { status: 403 });
     }
 
-    // ── Pre-fetch courier_cash to get hppPending/profitPending before handover ──
-    // We need these to calculate what portion of the handover is HPP vs profit,
-    // so pool balances can be updated correctly when money enters the brankas.
+    // ── Pre-fetch courier_cash to get hppPending/profitPending for portion calculation ──
     const { data: courierCashBefore } = await db
       .from('courier_cash')
       .select('id, balance, hpp_pending, profit_pending')
@@ -90,7 +88,6 @@ export async function POST(request: NextRequest) {
     const balanceBefore = ccBefore?.balance || 0;
     const hppPendingBefore = ccBefore?.hpp_pending || 0;
     const profitPendingBefore = ccBefore?.profit_pending || 0;
-    const courierCashId = ccBefore?.id || null;
 
     // Validate balance before RPC
     if (balanceBefore < amount) {
@@ -101,13 +98,12 @@ export async function POST(request: NextRequest) {
 
     // ── Calculate HPP/profit portions for this handover ──
     // Use the ratio of hppPending/profitPending to balance to determine portions.
-    // If balance is 0 (shouldn't happen due to validation above), default to 0 portions.
     let handoverHppPortion = 0;
     let handoverProfitPortion = 0;
     if (balanceBefore > 0) {
       const hppRatio = hppPendingBefore / balanceBefore;
       const profitRatio = profitPendingBefore / balanceBefore;
-      handoverHppPortion = Math.round(amount * hppRatio * 100) / 100; // Round to 2 decimal
+      handoverHppPortion = Math.round(amount * hppRatio * 100) / 100;
       handoverProfitPortion = Math.round(amount * profitRatio * 100) / 100;
     }
     // Ensure portions don't exceed what's pending
@@ -115,24 +111,23 @@ export async function POST(request: NextRequest) {
     handoverProfitPortion = Math.min(handoverProfitPortion, profitPendingBefore);
 
     // ── ATOMIC HANDOVER: Single RPC call handles everything in one DB transaction ──
-    // This replaces the previous non-atomic multi-step approach that could leave
-    // inconsistent data (e.g., courier cash deducted but handover record not created).
-    //
     // The RPC process_courier_handover atomically:
     // 1. Gets or creates courier_cash record
     // 2. Validates sufficient balance
-    // 3. Deducts from courier_cash balance
+    // 3. Calculates & deducts hpp_pending/profit_pending from courier_cash
     // 4. Gets or creates brankas (cash_box)
     // 5. Credits brankas balance
     // 6. Creates finance_request
-    // 7. Creates courier_handover record
-    // 8. Returns all results as JSONB
+    // 7. Creates courier_handover with hpp_portion/profit_portion
+    // 8. Returns all results as JSONB (including hpp_portion/profit_portion)
     const { data: result, error: rpcError } = await db.rpc('process_courier_handover', {
       p_courier_id: courierId,
       p_unit_id: unitId,
       p_amount: amount,
       p_processed_by_id: authUserId,
       p_notes: notes || null,
+      p_hpp_portion: handoverHppPortion,
+      p_profit_portion: handoverProfitPortion,
     });
 
     if (rpcError) {
@@ -155,10 +150,11 @@ export async function POST(request: NextRequest) {
     const cashBoxId = result.cash_box_id;
     const newBalance = Number(result.new_balance) || 0;
     const brankasBalance = Number(result.cash_box_balance) || 0;
+    // Use RPC-returned hpp/profit portions (calculated atomically inside the RPC)
+    handoverHppPortion = Number(result.hpp_portion) || 0;
+    handoverProfitPortion = Number(result.profit_portion) || 0;
 
     // ── Update pool balances — money is now in brankas! ──
-    // This is the correct time to update pool balances: when cash actually
-    // enters the company's possession (brankas), not when the courier collects it.
     try {
       if (handoverHppPortion > 0) {
         await atomicUpdatePoolBalance('pool_hpp_paid_balance', handoverHppPortion);
@@ -170,33 +166,8 @@ export async function POST(request: NextRequest) {
     } catch (poolErr) {
       console.error('[HANDOVER] Failed to update pool balance (non-blocking):', poolErr);
     }
-
-    // ── Update courier_cash hppPending/profitPending ──
-    // Deduct the portions that have been deposited to brankas
-    if (courierCashId) {
-      try {
-        const newHppPending = Math.max(0, hppPendingBefore - handoverHppPortion);
-        const newProfitPending = Math.max(0, profitPendingBefore - handoverProfitPortion);
-        await db.from('courier_cash').update({
-          hpp_pending: newHppPending,
-          profit_pending: newProfitPending,
-        }).eq('id', courierCashId);
-      } catch (ccUpdateErr) {
-        console.error('[HANDOVER] Failed to update courier_cash pending portions (non-blocking):', ccUpdateErr);
-      }
-    }
-
-    // ── Update courier_handover with hpp/profit portions ──
-    if (handoverId) {
-      try {
-        await db.from('courier_handovers').update({
-          hpp_portion: handoverHppPortion,
-          profit_portion: handoverProfitPortion,
-        }).eq('id', handoverId);
-      } catch (hoUpdateErr) {
-        console.error('[HANDOVER] Failed to update handover hpp/profit portions (non-blocking):', hoUpdateErr);
-      }
-    }
+    // NOTE: hpp_pending/profit_pending and handover hpp_portion/profit_portion
+    // are now handled atomically inside the RPC. No manual updates needed.
 
     // Get courier name for logging
     const { data: courier } = await db.from('users').select('name').eq('id', courierId).single();

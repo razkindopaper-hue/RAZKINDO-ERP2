@@ -207,7 +207,8 @@ $$;`,
   {
     name: 'process_courier_handover',
     sql: `CREATE OR REPLACE FUNCTION process_courier_handover(
-      p_courier_id uuid, p_unit_id uuid, p_amount numeric, p_processed_by_id uuid, p_notes text DEFAULT NULL
+      p_courier_id uuid, p_unit_id uuid, p_amount numeric, p_processed_by_id uuid, p_notes text DEFAULT NULL,
+      p_hpp_portion numeric DEFAULT 0, p_profit_portion numeric DEFAULT 0
     ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
     DECLARE
       v_cc record;
@@ -216,10 +217,12 @@ $$;`,
       v_finance_request_id text;
       v_new_balance numeric;
       v_cb_balance numeric;
+      v_hpp_portion numeric;
+      v_profit_portion numeric;
     BEGIN
-      -- 1. Get or create courier_cash
-      INSERT INTO courier_cash (id, courier_id, unit_id, balance, total_collected, total_handover)
-      VALUES (gen_random_uuid()::text, p_courier_id, p_unit_id, 0, 0, 0)
+      -- 1. Get or create courier_cash (include hpp_pending/profit_pending)
+      INSERT INTO courier_cash (id, courier_id, unit_id, balance, total_collected, total_handover, hpp_pending, profit_pending)
+      VALUES (gen_random_uuid()::text, p_courier_id, p_unit_id, 0, 0, 0, 0, 0)
       ON CONFLICT (courier_id, unit_id) DO NOTHING;
       SELECT * INTO v_cc FROM courier_cash WHERE courier_id = p_courier_id AND unit_id = p_unit_id;
       IF NOT FOUND THEN RAISE EXCEPTION 'Courier cash record not found'; END IF;
@@ -229,14 +232,24 @@ $$;`,
         RAISE EXCEPTION 'Saldo cash kurir tidak cukup. Saldo: %, Diminta: %', v_cc.balance, p_amount;
       END IF;
 
-      -- 3. Deduct from courier cash
+      -- 3. Calculate HPP/profit portions if not provided
+      v_hpp_portion := COALESCE(p_hpp_portion, 0);
+      v_profit_portion := COALESCE(p_profit_portion, 0);
+      IF v_hpp_portion = 0 AND v_profit_portion = 0 AND v_cc.balance > 0 THEN
+        v_hpp_portion := LEAST(ROUND(p_amount * COALESCE(v_cc.hpp_pending, 0) / v_cc.balance), COALESCE(v_cc.hpp_pending, 0));
+        v_profit_portion := LEAST(ROUND(p_amount * COALESCE(v_cc.profit_pending, 0) / v_cc.balance), COALESCE(v_cc.profit_pending, 0));
+      END IF;
+
+      -- 4. Deduct from courier cash (balance + hpp_pending + profit_pending)
       UPDATE courier_cash SET
         balance = balance - p_amount,
-        total_handover = total_handover + p_amount
+        total_handover = total_handover + p_amount,
+        hpp_pending = GREATEST(0, COALESCE(hpp_pending, 0) - v_hpp_portion),
+        profit_pending = GREATEST(0, COALESCE(profit_pending, 0) - v_profit_portion)
       WHERE id = v_cc.id
       RETURNING balance INTO v_new_balance;
 
-      -- 4. Get or create brankas (cash_box)
+      -- 5. Get or create brankas (cash_box)
       SELECT * INTO v_cash_box FROM cash_boxes WHERE unit_id = p_unit_id AND is_active = true LIMIT 1;
       IF NOT FOUND THEN
         INSERT INTO cash_boxes (id, name, unit_id, balance, is_active)
@@ -244,27 +257,29 @@ $$;`,
         RETURNING * INTO v_cash_box;
       END IF;
 
-      -- 5. Credit brankas
+      -- 6. Credit brankas
       UPDATE cash_boxes SET balance = balance + p_amount WHERE id = v_cash_box.id RETURNING balance INTO v_cb_balance;
 
-      -- 6. Create finance_request
+      -- 7. Create finance_request
       v_finance_request_id := gen_random_uuid()::text;
       INSERT INTO finance_requests (id, type, amount, status, request_by_id, processed_by_id, description, processed_at)
       VALUES (v_finance_request_id, 'courier_deposit', p_amount, 'approved', p_processed_by_id, p_processed_by_id,
               CONCAT('Setoran kurir sebesar ', p_amount, COALESCE(' — ' || p_notes, '')), NOW());
 
-      -- 7. Create courier_handover
+      -- 8. Create courier_handover with hpp/profit portions
       v_handover_id := gen_random_uuid()::text;
-      INSERT INTO courier_handovers (id, courier_cash_id, amount, notes, status, finance_request_id, processed_by_id, processed_at)
-      VALUES (v_handover_id, v_cc.id, p_amount, p_notes, 'processed', v_finance_request_id, p_processed_by_id, NOW());
+      INSERT INTO courier_handovers (id, courier_cash_id, amount, hpp_portion, profit_portion, notes, status, finance_request_id, processed_by_id, processed_at)
+      VALUES (v_handover_id, v_cc.id, p_amount, v_hpp_portion, v_profit_portion, p_notes, 'processed', v_finance_request_id, p_processed_by_id, NOW());
 
-      -- 8. Return result
+      -- 9. Return result
       RETURN jsonb_build_object(
         'handover_id', v_handover_id,
         'finance_request_id', v_finance_request_id,
         'cash_box_id', v_cash_box.id,
         'new_balance', v_new_balance,
-        'cash_box_balance', v_cb_balance
+        'cash_box_balance', v_cb_balance,
+        'hpp_portion', v_hpp_portion,
+        'profit_portion', v_profit_portion
       );
     END;
     $$;`,

@@ -204,11 +204,13 @@ export async function GET(request: NextRequest) {
         return q;
       })(),
 
-      // Sales targets (use Prisma — PostgREST can't find 'SalesTarget' table)
-      prisma.salesTarget.findMany({
-        where: { period: 'monthly', year: currentYear, month: currentMonth, status: 'active' },
-        include: { user: { select: { id: true, name: true, role: true, email: true } } },
-      }),
+      // Sales targets (Supabase REST)
+      db.from('sales_targets')
+        .select('*, user:users!user_id(id, name, role, email)')
+        .eq('period', 'monthly')
+        .eq('year', currentYear)
+        .eq('month', currentMonth)
+        .eq('status', 'active'),
 
       // Super admin users
       db.from('users')
@@ -305,15 +307,15 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b[1].total - a[1].total)
       .slice(0, 5);
 
-    const salesTargets = (salesTargetsData || []).map((t: any) => ({
+    const salesTargets = (salesTargetsData?.data || []).map((t: any) => ({
       id: t.id,
-      userId: t.userId,
+      userId: t.user_id,
       period: t.period,
       year: t.year,
       month: t.month,
       quarter: t.quarter,
-      targetAmount: t.targetAmount,
-      achievedAmount: t.achievedAmount,
+      targetAmount: Number(t.target_amount) || 0,
+      achievedAmount: Number(t.achieved_amount) || 0,
       status: t.status,
       notes: t.notes,
       user: t.user ? { id: t.user.id, name: t.user.name, role: t.user.role, email: t.user.email } : null,

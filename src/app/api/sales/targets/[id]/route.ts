@@ -1,22 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, prisma } from '@/lib/supabase';
+import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
 
+function toCamelCase(row: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    result[camelKey] = value;
+  }
+  return result;
+}
+
 function formatTarget(t: any) {
+  const ct = typeof t.user_id !== 'undefined' ? toCamelCase(t) : t;
   return {
-    id: t.id,
-    userId: t.userId,
-    period: t.period,
-    year: t.year,
-    month: t.month,
-    quarter: t.quarter,
-    targetAmount: t.targetAmount,
-    achievedAmount: t.achievedAmount,
-    status: t.status,
-    notes: t.notes,
-    createdAt: t.createdAt,
-    updatedAt: t.updatedAt,
-    user: t.user ? { name: t.user.name, email: t.user.email } : null,
+    id: ct.id,
+    userId: ct.userId,
+    period: ct.period,
+    year: ct.year,
+    month: ct.month,
+    quarter: ct.quarter,
+    targetAmount: Number(ct.targetAmount) || 0,
+    achievedAmount: Number(ct.achievedAmount) || 0,
+    status: ct.status,
+    notes: ct.notes,
+    createdAt: ct.createdAt,
+    updatedAt: ct.updatedAt,
+    user: ct.userName ? { name: ct.userName, email: ct.userEmail } : null,
   };
 }
 
@@ -36,14 +46,15 @@ export async function PATCH(
     const { id } = await params;
     const data = await request.json();
 
-    const existing = await prisma.salesTarget.findUnique({ where: { id } });
+    // Check target exists
+    const { data: existing } = await db.from('sales_targets').select('*').eq('id', id).maybeSingle();
     if (!existing) return NextResponse.json({ error: 'Target penjualan tidak ditemukan' }, { status: 404 });
     if (existing.status === 'expired') return NextResponse.json({ error: 'Target yang sudah expired tidak dapat diubah' }, { status: 400 });
 
-    const updateData: any = {};
+    const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
     if (data.targetAmount !== undefined) {
       if (typeof data.targetAmount !== 'number' || data.targetAmount <= 0) return NextResponse.json({ error: 'targetAmount harus berupa angka dan lebih dari 0' }, { status: 400 });
-      updateData.targetAmount = data.targetAmount;
+      updateData.target_amount = data.targetAmount;
     }
     if (data.status !== undefined) {
       const validStatuses = ['active', 'completed', 'expired'];
@@ -52,17 +63,19 @@ export async function PATCH(
     }
     if (data.achievedAmount !== undefined) {
       if (typeof data.achievedAmount !== 'number' || data.achievedAmount < 0) return NextResponse.json({ error: 'achievedAmount harus berupa angka dan tidak kurang dari 0' }, { status: 400 });
-      updateData.achievedAmount = data.achievedAmount;
+      updateData.achieved_amount = data.achievedAmount;
     }
     if (data.notes !== undefined) updateData.notes = data.notes;
 
-    const target = await prisma.salesTarget.update({
-      where: { id },
-      data: updateData,
-      include: { user: { select: { name: true, email: true } } },
-    });
+    const { data: updated, error } = await db
+      .from('sales_targets')
+      .update(updateData)
+      .eq('id', id)
+      .select('*, user:users!user_id(name, email)')
+      .single();
+    if (error) throw error;
 
-    return NextResponse.json({ target: formatTarget(target) });
+    return NextResponse.json({ target: formatTarget(updated) });
   } catch (error) {
     console.error('Update sales target error:', error);
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
@@ -84,11 +97,12 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const existing = await prisma.salesTarget.findUnique({ where: { id } });
+    const { data: existing } = await db.from('sales_targets').select('status').eq('id', id).maybeSingle();
     if (!existing) return NextResponse.json({ error: 'Target penjualan tidak ditemukan' }, { status: 404 });
     if (existing.status !== 'active') return NextResponse.json({ error: 'Hanya target dengan status active yang dapat dihapus' }, { status: 400 });
 
-    await prisma.salesTarget.delete({ where: { id } });
+    const { error } = await db.from('sales_targets').delete().eq('id', id);
+    if (error) throw error;
 
     return NextResponse.json({ success: true });
   } catch (error) {

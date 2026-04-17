@@ -1,6 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, prisma } from '@/lib/supabase';
+import { db } from '@/lib/supabase';
 import { verifyAuthUser } from '@/lib/token';
+import { generateId } from '@/lib/supabase-helpers';
+
+function toCamelCase(row: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    result[camelKey] = value;
+  }
+  return result;
+}
+
+function formatTarget(t: any) {
+  const ct = typeof t.user_id !== 'undefined' ? toCamelCase(t) : t;
+  return {
+    id: ct.id,
+    userId: ct.userId,
+    period: ct.period,
+    year: ct.year,
+    month: ct.month,
+    quarter: ct.quarter,
+    targetAmount: Number(ct.targetAmount) || 0,
+    achievedAmount: Number(ct.achievedAmount) || 0,
+    status: ct.status,
+    notes: ct.notes,
+    createdAt: ct.createdAt,
+    updatedAt: ct.updatedAt,
+    user: ct.userName ? { name: ct.userName, email: ct.userEmail } : null,
+  };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,42 +40,54 @@ export async function GET(request: NextRequest) {
     if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const filterUserId = searchParams.get('userId');
     const year = searchParams.get('year');
     const period = searchParams.get('period');
 
-    const where: any = {};
-    if (authUser.role !== 'super_admin') where.userId = authUserId;
-    if (userId) where.userId = userId;
+    let query = db
+      .from('sales_targets')
+      .select('*, user:users!user_id(name, email)')
+      .order('year', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    // Non-super_admin can only see own targets
+    if (authUser.role !== 'super_admin') {
+      query = query.eq('user_id', authUserId);
+    }
+    if (filterUserId) {
+      query = query.eq('user_id', filterUserId);
+    }
     if (year) {
       const parsedYear = parseInt(year, 10);
       if (isNaN(parsedYear)) return NextResponse.json({ error: 'Year harus berupa angka' }, { status: 400 });
-      where.year = parsedYear;
+      query = query.eq('year', parsedYear);
     }
-    if (period) where.period = period;
+    if (period) {
+      query = query.eq('period', period);
+    }
 
-    const targets = await prisma.salesTarget.findMany({
-      where,
-      include: { user: { select: { name: true, email: true } } },
-      orderBy: [{ year: 'desc' }, { createdAt: 'desc' }],
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Flatten user relation into camelCase
+    const result = (data || []).map((t: any) => {
+      const ct = toCamelCase(t);
+      return {
+        id: ct.id,
+        userId: ct.userId,
+        period: ct.period,
+        year: ct.year,
+        month: ct.month,
+        quarter: ct.quarter,
+        targetAmount: Number(ct.targetAmount) || 0,
+        achievedAmount: Number(ct.achievedAmount) || 0,
+        status: ct.status,
+        notes: ct.notes,
+        createdAt: ct.createdAt,
+        updatedAt: ct.updatedAt,
+        user: ct.user ? { name: ct.user.name, email: ct.user.email } : null,
+      };
     });
-
-    // Convert to camelCase for frontend
-    const result = targets.map(t => ({
-      id: t.id,
-      userId: t.userId,
-      period: t.period,
-      year: t.year,
-      month: t.month,
-      quarter: t.quarter,
-      targetAmount: t.targetAmount,
-      achievedAmount: t.achievedAmount,
-      status: t.status,
-      notes: t.notes,
-      createdAt: t.createdAt,
-      updatedAt: t.updatedAt,
-      user: t.user ? { name: t.user.name, email: t.user.email } : null,
-    }));
 
     return NextResponse.json({ targets: result });
   } catch (error) {
@@ -71,7 +112,7 @@ export async function POST(request: NextRequest) {
     if (typeof targetAmount !== 'number' || targetAmount <= 0) return NextResponse.json({ error: 'targetAmount harus berupa angka dan lebih dari 0' }, { status: 400 });
 
     // Verify user exists and has valid role
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+    const { data: user } = await db.from('users').select('id, role').eq('id', userId).single();
     if (!user) return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 });
     if (!['sales', 'admin', 'super_admin', 'keuangan'].includes(user.role)) {
       return NextResponse.json({ error: 'Target penjualan hanya dapat diberikan kepada user dengan role sales, admin, super_admin, atau keuangan' }, { status: 400 });
@@ -85,56 +126,59 @@ export async function POST(request: NextRequest) {
     const finalMonth = period === 'monthly' ? (month || 0) : 0;
     const finalQuarter = period === 'quarterly' ? (quarter || 0) : 0;
 
-    // Check existing target (upsert via unique constraint)
-    const existing = await prisma.salesTarget.findFirst({
-      where: { userId, period, year, month: finalMonth, quarter: finalQuarter },
-    });
+    // Check existing target (unique: userId + period + year + month + quarter)
+    const { data: existing } = await db
+      .from('sales_targets')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('period', period)
+      .eq('year', year)
+      .eq('month', finalMonth)
+      .eq('quarter', finalQuarter)
+      .maybeSingle();
 
     if (existing) {
-      const target = await prisma.salesTarget.update({
-        where: { id: existing.id },
-        data: { targetAmount, notes: notes ?? undefined, status: 'active' },
-        include: { user: { select: { name: true, email: true } } },
-      });
-      return NextResponse.json({ target: formatTarget(target) });
+      // Update existing
+      const { data: updated, error: updateError } = await db
+        .from('sales_targets')
+        .update({
+          target_amount: targetAmount,
+          notes: notes || null,
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+        .select('*, user:users!user_id(name, email)')
+        .single();
+      if (updateError) throw updateError;
+      return NextResponse.json({ target: formatTarget(updated) });
     }
 
-    const target = await prisma.salesTarget.create({
-      data: {
-        userId,
+    // Create new
+    const now = new Date().toISOString();
+    const { data: created, error: createError } = await db
+      .from('sales_targets')
+      .insert({
+        id: generateId(),
+        user_id: userId,
         period,
         year,
         month: finalMonth,
         quarter: finalQuarter,
-        targetAmount,
-        achievedAmount: 0,
+        target_amount: targetAmount,
+        achieved_amount: 0,
         status: 'active',
-        notes: notes ?? null,
-      },
-      include: { user: { select: { name: true, email: true } } },
-    });
+        notes: notes || null,
+        created_at: now,
+        updated_at: now,
+      })
+      .select('*, user:users!user_id(name, email)')
+      .single();
+    if (createError) throw createError;
 
-    return NextResponse.json({ target: formatTarget(target) });
+    return NextResponse.json({ target: formatTarget(created) });
   } catch (error) {
     console.error('Create sales target error:', error);
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
-}
-
-function formatTarget(t: any) {
-  return {
-    id: t.id,
-    userId: t.userId,
-    period: t.period,
-    year: t.year,
-    month: t.month,
-    quarter: t.quarter,
-    targetAmount: t.targetAmount,
-    achievedAmount: t.achievedAmount,
-    status: t.status,
-    notes: t.notes,
-    createdAt: t.createdAt,
-    updatedAt: t.updatedAt,
-    user: t.user ? { name: t.user.name, email: t.user.email } : null,
-  };
 }

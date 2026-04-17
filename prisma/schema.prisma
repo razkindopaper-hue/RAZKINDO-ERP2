@@ -770,7 +770,7 @@ model SalesTarget {
   
   @@unique([userId, period, year, month, quarter])
   @@index([userId, period, status])
-  @@map("SalesTarget")
+  @@map("sales_targets")
 }
 
 // ================================
