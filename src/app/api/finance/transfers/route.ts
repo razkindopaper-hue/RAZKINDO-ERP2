@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
     const insertData = toSnakeCase({
       id: generateId(), type: data.type, fromBankAccountId, toBankAccountId, fromCashBoxId, toCashBoxId,
       amount: data.amount, description: data.description, referenceNo: data.referenceNo, status: 'pending',
+      updatedAt: new Date().toISOString(),
     });
 
     const { data: transfer, error } = await db.from('fund_transfers').insert(insertData).select().single();

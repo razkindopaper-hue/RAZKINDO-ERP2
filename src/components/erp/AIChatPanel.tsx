@@ -106,7 +106,12 @@ export default function AIChatPanel() {
       q.match(/laporan\s*(keuangan|financial|lengkap|komprehensif)/) ||
       q.match(/aset|asset\s*(value|nilai)/) ||
       q.match(/margin\s*(keuntungan|profit)/) ||
-      q.match(/hutang|debt|piutang\s*(total|ringkasan)/)
+      q.match(/hutang|debt|piutang\s*(total|ringkasan)/) ||
+      q.match(/buat\s*(gambar\s*)?promo/) ||
+      q.match(/generate\s*promo/) ||
+      q.match(/cek\s*selisih/) ||
+      q.match(/perbaiki\s*selisih/) ||
+      q.match(/penyebab\s*selisih/)
     );
   }
 
@@ -121,6 +126,10 @@ export default function AIChatPanel() {
       { label: '🎯 Prediksi konsumen', query: 'prediksi konsumen mana yang kemungkinan besar akan beli minggu depan' },
       { label: '💵 Audit uang masuk', query: 'audit semua uang masuk dan telusuri apakah ada selisih atau masalah' },
       { label: '🏥 Cek kesehatan keuangan', query: 'bagaimana kondisi kesehatan keuangan kita saat ini berikan analisis komprehensif' },
+      { label: '🔍 Cek selisih data', query: 'cek apakah ada selisih di data keuangan kita' },
+      { label: '🛠️ Perbaiki selisih', query: 'analisa dan rekomendasikan perbaikan untuk selisih data yang ditemukan' },
+      { label: '🔎 Penyebab selisih', query: 'cari tahu penyebab selisih di data keuangan kita' },
+      { label: '🎨 Buat gambar promo', query: 'buat gambar promo untuk produk terlaris' },
     ] : []),
     { label: '📋 Piutang', query: 'total piutang' },
     { label: '📦 Stok produk', query: 'stok produk' },
@@ -150,7 +159,7 @@ export default function AIChatPanel() {
       setMessages([{
         role: 'assistant',
         content: isSuperAdmin
-          ? 'Halo! 👋 Saya **Asisten Keuangan Razkindo** — AI Financial Analyst.\n\n🧠 Kini dengan kecerdasan finansial lengkap!\n\n**Analisis Keuangan:**\n• 🔍 Cek HPP & Profit terkumpul\n• 🛒 Saran restock berdasarkan pola penjualan\n• 📊 Analisa tren penjualan (bulanan/kuartal)\n• 🎯 Prediksi konsumen yang akan order\n• 💵 Audit uang masuk & deteksi selisih\n• 🏥 Cek kesehatan keuangan\n\n**🆕 AI Tools (tombol di bawah):**\n• 🔍 **Analisa Selisih** — Deteksi discrepancy data\n• 🔧 **Sesuaikan Selisih** — Auto-fix otomatis\n• 🔎 **Cari Penyebab** — Akar masalah selisih\n• 🎨 **Gambar Promo** — Buat gambar promosi produk\n\n**Data Cepat:**\n• 💰 Penjualan hari/minggu/bulan\n• 👥 Per sales • 📋 Piutang\n• 📦 Stok • 📝 Penawaran • 📄 MOU\n\n📢 Tab **Broadcast** untuk kirim promo!'
+          ? 'Halo! 👋 Saya **Asisten Keuangan Razkindo** — AI Financial Analyst.\n\n🧠 Kini dengan kecerdasan finansial lengkap!\n\n**Analisis Keuangan:**\n• 🔍 Cek HPP & Profit terkumpul\n• 🛒 Saran restock berdasarkan pola penjualan\n• 📊 Analisa tren penjualan (bulanan/kuartal)\n• 🎯 Prediksi konsumen yang akan order\n• 💵 Audit uang masuk & deteksi selisih\n• 🏥 Cek kesehatan keuangan\n\n**🆕 AI Discrepancy Tools:**\n• 🔍 **Cek Selisih Data** — Deep audit inkonsistensi\n• 🛠️ **Perbaiki Selisih** — Rekomendasi fix otomatis\n• 🔎 **Penyebab Selisih** — Root cause analysis\n• 🎨 **Gambar Promo** — Generate gambar promosi produk\n\n**AI Action Buttons (di bawah chat):**\n• Gunakan tombol ⚡ untuk aksi cepat\n• Atau ketik perintah langsung\n\n**Data Cepat:**\n• 💰 Penjualan hari/minggu/bulan\n• 👥 Per sales • 📋 Piutang\n• 📦 Stok • 📝 Penawaran • 📄 MOU\n\n📢 Tab **Broadcast** untuk kirim promo!'
           : 'Halo! 👋 Saya **Asisten Data Razkindo**.\n\nKlik tombol cepat atau tanya apa saja:\n• 💰 Penjualan hari/minggu/bulan\n• 👥 Penjualan per sales\n• 📋 Piutang & konsumen\n• 📦 Stok produk\n• 📝 Buat penawaran\n• 📄 Buat MOU\n\n📢 Klik tab **Broadcast** untuk kirim promo!'
       }]);
     }
@@ -279,7 +288,7 @@ export default function AIChatPanel() {
 
     try {
       setLoadingType(isSuperAdmin && isFinancialAnalysis(userMsg) ? 'financial' : 'general');
-      const data = await apiFetch<{ success: boolean; isQuotation?: boolean; isMou?: boolean; isFinancial?: boolean; reply: string; error?: string }>('/api/ai/chat', {
+      const data = await apiFetch<{ success: boolean; isQuotation?: boolean; isMou?: boolean; isFinancial?: boolean; isPromoIntent?: boolean; promoProducts?: any[]; reply: string; error?: string }>('/api/ai/chat', {
         method: 'POST',
         body: JSON.stringify({ message: userMsg, history: messages }),
       });
@@ -301,6 +310,10 @@ export default function AIChatPanel() {
           }
           openMouDialog(parsed.partnerName);
           setMessages(prev => [...prev, { role: 'assistant', content: '📄 Silakan isi form MOU di dialog yang terbuka.' }]);
+        } else if (data.isPromoIntent && data.promoProducts) {
+          // Store promo products for later reference
+          setPromoProducts(data.promoProducts);
+          setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
         } else {
           setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
         }

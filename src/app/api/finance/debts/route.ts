@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
       notes: data.notes || '',
       createdById: authResult.userId,
       status: 'active',
+      updatedAt: new Date().toISOString(),
     });
 
     const { data: debt, error } = await db.from('company_debts').insert(insertData).select().single();

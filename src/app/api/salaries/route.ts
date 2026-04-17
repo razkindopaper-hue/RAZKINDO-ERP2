@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
       otherDeduction: data.otherDeduction || 0, deduction: data.deduction || 0,
       totalAllowance, totalDeduction, totalAmount, financeRequestId: financeRequest.id, notes: data.notes,
       status: 'pending',
+      updatedAt: new Date().toISOString(),
     });
     const { data: salary, error: sError } = await db.from('salary_payments').insert(salaryData).select(`
       *, user:users!user_id(id, name, email, role), finance_request:finance_requests(id, type, amount, status)

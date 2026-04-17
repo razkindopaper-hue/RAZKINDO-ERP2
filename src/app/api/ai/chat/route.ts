@@ -200,6 +200,98 @@ async function fetchFinancialSnapshot(authHeader: string | null, origin: string)
   }
 }
 
+// ============ AUDIT DATA FETCHER ============
+
+/**
+ * Fetch deep audit data by calling the audit endpoint internally.
+ * Returns comprehensive discrepancy analysis for the LLM.
+ */
+async function fetchAuditData(authHeader: string | null, origin: string): Promise<any | null> {
+  try {
+    const url = `${origin}/api/ai/audit`;
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': authHeader || '',
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(30000), // 30s timeout for deep audit
+    });
+    if (!res.ok) {
+      console.error('[AI Chat] Audit fetch failed:', res.status);
+      return null;
+    }
+    const json = await res.json();
+    return json.data || null;
+  } catch (err) {
+    console.error('[AI Chat] Audit fetch error:', err);
+    return null;
+  }
+}
+
+/**
+ * Build structured audit context string from audit data for LLM consumption.
+ */
+function buildAuditContext(data: any): string {
+  if (!data) return '';
+
+  const lines: string[] = [];
+  lines.push('=== HASIL AUDIT KEUANGAN RAZKINDO (Deep Audit) ===');
+  lines.push('');
+
+  const summary = data.summary;
+  if (summary) {
+    lines.push(`Waktu Audit: ${summary.auditTimestamp}`);
+    lines.push(`Total Transaksi: ${summary.totalTransactions}`);
+    lines.push(`Total Piutang: ${summary.totalReceivables} (${summary.activeReceivables} aktif)`);
+    lines.push(`Status Keseluruhan: ${summary.overallStatus === 'healthy' ? '✅ SEHAT' : summary.overallStatus === 'critical' ? '🔴 KRITIS' : '⚠️ PERINGATAN'}`);
+    lines.push(`🔍 ${summary.criticalCount} masalah kritis, ${summary.warningCount} peringatan, ${summary.infoCount} info`);
+    lines.push('');
+
+    lines.push('--- HASIL CHECK ---');
+    if (summary.checks) {
+      const checks = summary.checks;
+      lines.push(`1. Konsistensi Transaksi: ${checks.transactionConsistency.status} (${checks.transactionConsistency.issues} masalah dari ${checks.transactionConsistency.checked} transaksi)`);
+      lines.push(`2. Verifikasi Pembayaran: ${checks.paymentVerification.status} (${checks.paymentVerification.issues} mismatch dari ${checks.paymentVerification.checked} transaksi)`);
+      lines.push(`3. Sinkronisasi Piutang: ${checks.receivableSync.status}`);
+      lines.push(`4. Pool Balance: ${checks.poolBalance.status}`);
+      lines.push(`5. Saldo Rekening: ${checks.accountBalances.status} (Bank: ${rp(checks.accountBalances.totalBank)}, Brankas: ${rp(checks.accountBalances.totalCashBox)}, Kurir: ${rp(checks.accountBalances.totalCourier)})`);
+      lines.push(`6. Integritas HPP/Profit: ${checks.hppProfitIntegrity.status}`);
+    }
+    lines.push('');
+  }
+
+  // Critical issues
+  if (data.discrepancies?.critical?.length > 0) {
+    lines.push('--- 🔴 MASALAH KRITIS ---');
+    data.discrepancies.critical.slice(0, 15).forEach((d: any) => {
+      lines.push(`[${d.type}] ${d.invoiceNo || d.accountName || d.description}`);
+      if (d.currentValue) lines.push(`  Saat ini: ${JSON.stringify(d.currentValue)}`);
+      if (d.expectedValue) lines.push(`  Seharusnya: ${JSON.stringify(d.expectedValue)}`);
+      if (d.discrepancy !== null && d.discrepancy !== undefined) lines.push(`  Selisih: ${rp(Math.abs(d.discrepancy))}`);
+      if (d.suggestedFix) {
+        lines.push(`  Saran Fix: ${d.suggestedFix.field} → ${d.suggestedFix.correctValue} (${d.suggestedFix.reason})`);
+      }
+      lines.push('');
+    });
+  }
+
+  // Warnings
+  if (data.discrepancies?.warning?.length > 0) {
+    lines.push('--- ⚠️ PERINGATAN ---');
+    data.discrepancies.warning.slice(0, 10).forEach((d: any) => {
+      lines.push(`[${d.type}] ${d.invoiceNo || d.customerName || d.description}`);
+      if (d.discrepancy !== null && d.discrepancy !== undefined) lines.push(`  Selisih: ${rp(Math.abs(d.discrepancy))}`);
+      if (d.suggestedFix) {
+        lines.push(`  Saran Fix: ${d.suggestedFix.field} → ${d.suggestedFix.correctValue}`);
+      }
+    });
+    lines.push('');
+  }
+
+  lines.push('=== AKHIR DATA AUDIT ===');
+  return lines.join('\n');
+}
+
 /**
  * Build a structured financial context string from snapshot data for LLM consumption.
  */
@@ -409,6 +501,10 @@ function isFinancialAnalysis(msg: string): boolean {
   if (q.match(/audit|telusuri|investigasi|cek\s*(kecocokan|kebenaran)/)) return true;
   if (q.match(/masalah\s*(keuangan|finansial|kas)/)) return true;
 
+  // Fix & Root Cause (new)
+  if (q.match(/perbaiki\s*(selisih|data)|fix.*(selisih|data)/)) return true;
+  if (q.match(/penyebab\s*(selisih|masalah)/)) return true;
+
   // General financial health
   if (q.match(/keuangan\s*(sehat|baik|buruk|how|kondisi)/)) return true;
   if (q.match(/financial\s*(health|status|review)/)) return true;
@@ -422,6 +518,65 @@ function isFinancialAnalysis(msg: string): boolean {
   if (q.match(/hutang|debt|piutang\s*(total|ringkasan)/)) return true;
 
   return false;
+}
+
+// ============ AUDIT INTENT DETECTION ============
+
+/**
+ * Detect if a message requests a deep audit (separate from general financial analysis).
+ * Audit triggers the /api/ai/audit endpoint for comprehensive discrepancy analysis.
+ */
+function isAuditIntent(msg: string): boolean {
+  const q = msg.toLowerCase();
+  return !!(
+    q.match(/cek\s*(apa\s*ada\s*)?selisih/) ||
+    q.match(/analisa\s*selisih/) ||
+    q.match(/ada\s*(tidak\s*)?selisih/) ||
+    q.match(/cek\s*kecocokan\s*data/) ||
+    q.match(/cek\s*kebenaran\s*data/)
+  );
+}
+
+/**
+ * Detect if a message requests fix recommendations for discrepancies.
+ */
+function isFixIntent(msg: string): boolean {
+  const q = msg.toLowerCase();
+  return !!(
+    q.match(/perbaiki\s*selisih/) ||
+    q.match(/fix\s*(selisih|discrepancy)/) ||
+    q.match(/koreksi\s*data/) ||
+    q.match(/rekomendasi\s*perbaikan/)
+  );
+}
+
+/**
+ * Detect if a message asks for root cause analysis.
+ */
+function isRootCauseIntent(msg: string): boolean {
+  const q = msg.toLowerCase();
+  return !!(
+    q.match(/penyebab\s*selisih/) ||
+    q.match(/kenapa\s*ada\s*selisih/) ||
+    q.match(/akar\s*(masalah|penyebab)/) ||
+    q.match(/root\s*cause/) ||
+    q.match(/diagnosa\s*selisih/)
+  );
+}
+
+/**
+ * Detect if a message requests promo image generation.
+ */
+function isPromoIntent(msg: string): boolean {
+  const q = msg.toLowerCase();
+  return !!(
+    q.match(/buat\s*(gambar\s*)?promo/) ||
+    q.match(/generate\s*promo/) ||
+    q.match(/gambar\s*promo/) ||
+    q.match(/desain\s*promo/) ||
+    q.match(/promotional\s*image/) ||
+    q.match(/poster\s*promo/)
+  );
 }
 
 // ============ LLM-POWERED CHAT ============
@@ -454,12 +609,14 @@ KEMAMPUAN UTAMA:
 6. **Health Check Keuangan**: Evaluasi kesehatan keuangan secara komprehensif (liquidity, solvency, profitability)
 7. **Analisa Hutang & Piutang**: Monitor hutang perusahaan, overdue status, dan piutang yang perlu ditagih
 8. **Nilai Aset**: Hitung dan analisa nilai aset produk berdasarkan stok dan HPP
+9. **Analisa Selisih & Audit Data**: Deteksi, analisa, dan rekomendasikan perbaikan untuk inkonsistensi data keuangan (discrepancy). Jalankan deep audit dan identifikasi root cause.
+10. **Generate Gambar Promo**: Buat gambar promosi profesional untuk produk (bisa diminta melalui tombol atau perintah chat)
 
 ${isSuperAdmin ? ' kamu memiliki akses penuh ke data HPP, profit, dan semua informasi keuangan sensitif.' : ''}
 
 ATURAN PENTING:
 - Gunakan Bahasa Indonesia yang profesional namun mudah dipahami
-- Gunakan emoji untuk visual yang menarik (📊📈💰📦⚠️🔍✅🔴🟢)
+- Gunakan emoji untuk visual yang menarik (📊📈💰📦⚠️🔍✅🔴🟢🎨)
 - Gunakan **bold** untuk angka/nama penting
 - Selalu berikan ANALISIS dan REKOMENDASI, bukan hanya data mentah
 - Jika ada masalah (selisih, overdue, stok rendah), berikan SOLVING/REKOMENDASI konkret
@@ -474,7 +631,10 @@ CONTOH ANALISIS:
 - "analisa penjualan 3 bulan terakhir" → Tren naik/turun, growth %, insight per bulan
 - "konsumen mana yang kemungkinan akan beli" → Prediksi berdasarkan pola, produk favorit, overdue status
 - "cek uang masuk dan selisihnya" → Audit arus kas, deteksi discrepancy, rekomendasi perbaikan
-- "kesehatan keuangan kita" → Comprehensive health check dengan skor dan rekomendasi`;
+- "kesehatan keuangan kita" → Comprehensive health check dengan skor dan rekomendasi
+- "cek apakah ada selisih di data keuangan" → Deep audit data, identifikasi semua discrepancy, berikan rekomendasi fix
+- "perbaiki selisih data yang ditemukan" → Analisa discrepancy, rekomendasikan fix spesifik per transaksi
+- "penyebab selisih di data keuangan" → Root cause analysis, identifikasi pola dan korelasi`;
 
   // Build messages array
   const messages: any[] = [
@@ -603,11 +763,66 @@ export async function POST(request: NextRequest) {
     // 3. Check if this is a financial analysis query that needs data context
     let financialContext: string | null = null;
     let isFinancial = false;
+    const origin = new URL(request.url).origin;
 
-    if (isSuperAdmin && isFinancialAnalysis(message)) {
-      // Derive origin from request URL for internal fetch
-      const origin = new URL(request.url).origin;
-      // Fetch comprehensive financial data for the LLM to analyze
+    // 3a. Deep audit intent — fetch audit endpoint for comprehensive discrepancy data
+    if (isSuperAdmin && isAuditIntent(message)) {
+      const auditData = await fetchAuditData(authHeader, origin);
+      if (auditData) {
+        financialContext = buildAuditContext(auditData);
+        isFinancial = true;
+      }
+    }
+    // 3b. Fix intent — run audit first, then let LLM recommend fixes with data
+    else if (isSuperAdmin && isFixIntent(message)) {
+      const auditData = await fetchAuditData(authHeader, origin);
+      if (auditData) {
+        const auditContext = buildAuditContext(auditData);
+        financialContext = auditContext + '\n\nINSTRUKSI KHUSUS: User meminta rekomendasi perbaikan selisih. Berikan rekomendasi fix yang spesifik per transaksi, lengkap dengan field yang harus diubah, nilai yang benar, dan alasan perbaikan.';
+        isFinancial = true;
+      }
+    }
+    // 3c. Root cause intent — run audit, then let LLM analyze root cause
+    else if (isSuperAdmin && isRootCauseIntent(message)) {
+      const auditData = await fetchAuditData(authHeader, origin);
+      if (auditData) {
+        const auditContext = buildAuditContext(auditData);
+        financialContext = auditContext + '\n\nINSTRUKSI KHUSUS: User meminta analisis akar penyebab (root cause) selisih. Identifikasi POLA dan KORELASI antar discrepancy, berikan DIAGNOSIS akar penyebab yang spesifik, dan rekomendasikan langkah pencegahan.';
+        isFinancial = true;
+      }
+    }
+    // 3d. Promo image intent — for super_admin, fetch products and return JSON for frontend
+    else if (isSuperAdmin && isPromoIntent(message)) {
+      try {
+        const { data: topProducts } = await db
+          .from('products')
+          .select('id, name, category, unit, selling_price, image_url')
+          .eq('is_active', true)
+          .order('selling_price', { ascending: false })
+          .limit(10);
+
+        if (topProducts && topProducts.length > 0) {
+          const productList = topProducts.map((p: any, i: number) =>
+            `${i + 1}. **${p.name}** — ${rp(p.selling_price)}`
+          ).join('\n');
+
+          const promoReply = `🎨 **Generate Gambar Promo**\n\nBerikut produk teratas yang bisa dibuatkan gambar promonya:\n\n${productList}\n\n💡 **Cara membuat gambar promo:**\n1. Gunakan tombol **🎨 Gambar Promo** di bawah chat\n2. Atau ketik \`promo [nomor produk]\`, contoh: \`promo 1\`\n3. Atau ketik \`promo [nama produk]\`, contoh: \`promo semen\`\n\n📅 Tipe promo tersedia: discount, bundle, new, flash_sale`;
+
+          return NextResponse.json({
+            success: true,
+            reply: promoReply,
+            isFinancial: false,
+            isPromoIntent: true,
+            promoProducts: topProducts,
+          });
+        }
+      } catch (err) {
+        console.error('[AI Chat] Promo product fetch error:', err);
+      }
+      // Fallback to LLM if product fetch fails
+    }
+    // 3e. General financial analysis — use financial snapshot
+    else if (isSuperAdmin && isFinancialAnalysis(message)) {
       const snapshotData = await fetchFinancialSnapshot(authHeader, origin);
       if (snapshotData) {
         financialContext = buildFinancialContext(snapshotData);

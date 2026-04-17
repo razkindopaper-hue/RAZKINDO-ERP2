@@ -282,3 +282,81 @@ Stage Summary:
 - AIChatPanel now has 4 AI action buttons for financial discrepancy management
 - Promo image generation with product selection and download
 - All endpoints verified (405 on GET = correct POST-only)
+
+## [AI Features - AI Discrepancy Analyzer, Adjuster, Root Cause Finder, Promo Image Generator]
+
+### Date: $(date '+%Y-%m-%d %H:%M:%S')
+
+### Summary
+Added 4 new AI-powered features to the Razkindo ERP AI Chat Panel:
+
+---
+
+### 1. Created `/api/ai/audit/route.ts` (NEW)
+**Deep Financial Audit Endpoint** (GET /api/ai/audit)
+
+- Super admin only, comprehensive discrepancy analysis
+- **Check 1**: Transaction consistency — `total === paid_amount + remaining_amount` (1 rupiah tolerance)
+- **Check 2**: Payment verification — `paid_amount === sum(payments.amount)` (1 rupiah tolerance)
+- **Check 3**: Receivable sync — receivables vs transaction payment_status
+- **Check 4**: Pool balance vs actual transaction sums (hpp_paid_balance, profit_paid_balance)
+- **Check 5**: Account balance health (negative bank/cashbox/courier balances)
+- **Check 6**: HPP/Profit field integrity
+- Returns discrepancies grouped by severity (critical, warning, info) with suggested fixes
+- Creates audit log entry
+
+### 2. Created `/api/ai/fix-discrepancy/route.ts` (NEW)
+**Fix Discrepancy Endpoint** (POST /api/ai/fix-discrepancy)
+
+- Super admin only, targeted per-transaction fixes
+- Supports fixing: paid_amount, remaining_amount, payment_status, hpp_paid, hpp_unpaid, profit_paid, profit_unpaid, status
+- Validates fix values and field constraints
+- Logs before/after snapshots for audit trail
+- Auto-syncs linked receivables when payment data changes
+- Returns complete before/after data comparison
+
+### 3. Enhanced `/api/ai/promo-image/route.ts` (MODIFIED)
+**Promo Image Generation** (POST /api/ai/promo-image)
+
+- Added batch generation support via `productIds` array with `promoType` parameter
+- Promo types: discount, bundle, new, flash_sale
+- Each type has specialized visual prompt with badges and stamps
+- Returns product-level results for batch operations
+- Added audit logging for image generation
+
+### 4. Enhanced `/api/ai/chat/route.ts` (MODIFIED)
+**AI Chat Intent Detection** 
+
+Added 4 new intent detectors:
+- `isAuditIntent()` — triggers deep audit via /api/ai/audit
+- `isFixIntent()` — runs audit + instructs LLM to recommend fixes
+- `isRootCauseIntent()` — runs audit + instructs LLM for root cause analysis
+- `isPromoIntent()` — fetches top products for promo UI
+
+Added to `isFinancialAnalysis()`:
+- Fix intent patterns: `perbaiki selisih`, `fix discrepancy`
+- Root cause patterns: `penyebab selisih`, `root cause`
+
+Enhanced system prompt with capabilities #9 (Analisa Selisih & Audit Data) and #10 (Generate Gambar Promo).
+
+### 5. Updated `AIChatPanel.tsx` (MODIFIED)
+**Frontend Quick Prompts & Handling**
+
+- Added 4 new quick prompts (super_admin only):
+  - 🔍 Cek selisih data
+  - 🛠️ Perbaiki selisih
+  - 🔎 Penyebab selisih
+  - 🎨 Buat gambar promo
+- Updated welcome message to mention "AI Discrepancy Tools" section
+- Added `isPromoIntent` handling in message response to store promo products for later `promo [number]` command
+- Updated client-side `isFinancialAnalysis()` detection to cover new patterns
+- Updated API response type to include `isPromoIntent` and `promoProducts`
+
+---
+
+### Files Modified
+- `src/app/api/ai/audit/route.ts` — NEW
+- `src/app/api/ai/fix-discrepancy/route.ts` — NEW
+- `src/app/api/ai/promo-image/route.ts` — MODIFIED (batch support, promoType)
+- `src/app/api/ai/chat/route.ts` — MODIFIED (intent detection, audit context, capabilities)
+- `src/components/erp/AIChatPanel.tsx` — MODIFIED (quick prompts, welcome msg, promo handling)
