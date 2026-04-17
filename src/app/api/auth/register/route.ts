@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
-import { toCamelCase, rowsToCamelCase } from '@/lib/supabase-helpers';
+import { toCamelCase, rowsToCamelCase, generateId } from '@/lib/supabase-helpers';
 import { createLog } from '@/lib/supabase-helpers';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { validateBody, authSchemas } from '@/lib/validators';
+import { enforceSuperAdmin } from '@/lib/require-auth';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,7 +14,11 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = (rawEmail || '').toLowerCase().trim();
 
     // ============ NON-ERP EMPLOYEE (custom role) ============
+    // Requires super_admin authentication — only admins can create non-ERP employees
     if (customRoleId) {
+      const authResult = await enforceSuperAdmin(request);
+      if (!authResult.success) return authResult.response;
+
       if (!name || typeof name !== 'string' || !name.trim()) {
         return NextResponse.json({ error: 'Nama wajib diisi' }, { status: 400 });
       }
@@ -41,10 +46,11 @@ export async function POST(request: NextRequest) {
         : (unitId ? [unitId] : []);
       const primaryUnitId = selectedUnitIds.length > 0 ? selectedUnitIds[0] : null;
 
-      // users table uses snake_case columns
+      // users table uses snake_case columns — id has no DB default, must generate explicitly
       const { data: user, error: insertError } = await db
         .from('users')
         .insert({
+          id: generateId(),
           email: internalEmail,
           password: hashedPassword,
           name: name.trim(),
@@ -54,6 +60,7 @@ export async function POST(request: NextRequest) {
           unit_id: primaryUnitId,
           status: 'approved',
           can_login: false,
+          updated_at: new Date().toISOString(),
         })
         .select('*')
         .single();
@@ -156,10 +163,11 @@ export async function POST(request: NextRequest) {
       // Set primary unit_id to first selected unit (backward compat)
       const primaryUnitId = selectedUnitIds.length > 0 ? selectedUnitIds[0] : null;
 
-      // users table uses snake_case columns
+      // users table uses snake_case columns — id has no DB default, must generate explicitly
       const { data: user, error: insertError } = await db
         .from('users')
         .insert({
+          id: generateId(),
           email,
           password: hashedPassword,
           name: validatedName,
@@ -168,6 +176,7 @@ export async function POST(request: NextRequest) {
           unit_id: primaryUnitId,
           status,
           last_seen_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         })
         .select('*')
         .single();

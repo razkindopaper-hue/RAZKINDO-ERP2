@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert with camelCase column names (actual DB columns)
+    const now = new Date().toISOString();
     const { data, error } = await db
       .from('custom_roles')
       .insert({
@@ -83,7 +84,8 @@ export async function POST(request: NextRequest) {
         name: roleName,
         description: description || null,
         createdById: authResult.userId!,
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       })
       .select('*')
       .single();

@@ -273,7 +273,7 @@ export default function UsersModule() {
     mutationFn: async (data: any) => {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', authorization: useAuthStore.getState().token || '' },
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${useAuthStore.getState().token || ''}` },
         body: JSON.stringify(data),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Gagal'); }
