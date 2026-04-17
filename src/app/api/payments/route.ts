@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
           transaction_id: data.transactionId,
           received_by_id: authUserId,
           amount: data.amount,
-          payment_method: data.paymentMethod,
+          paymentMethod: data.paymentMethod,
           cash_box_id: data.paymentMethod === 'cash' ? data.cashBoxId : null,
           bank_account_id: (data.paymentMethod === 'transfer' || data.paymentMethod === 'giro') ? data.bankAccountId : null,
           bank_name: data.bankName,
