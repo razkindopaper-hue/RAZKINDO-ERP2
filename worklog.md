@@ -252,3 +252,33 @@ Stage Summary:
 - Security: Non-ERP employee creation now requires super_admin authentication
 - All inserts into users table now include explicit id and updated_at
 - Consistent Bearer prefix in all auth headers
+---
+Task ID: 1
+Agent: Main
+Task: Add AI discrepancy analysis, auto-adjustment, root cause finding, and promo image generation to AI Chat Panel
+
+Work Log:
+- Read and analyzed entire project structure (AIChatPanel, AI chat route, financial-snapshot, transactions, finance/pools, cash-flow)
+- Created new API endpoint `/api/ai/discrepancy/route.ts` with 3 actions:
+  - `analyze`: Comprehensive discrepancy detection across pool balances, physical funds, transaction inconsistencies, payment mismatches, and receivable mismatches
+  - `adjust`: Auto-fix discrepancies by syncing pool balances, fixing transaction inconsistencies, and syncing receivables
+  - `root_cause`: AI-powered root cause analysis using LLM (z-ai-web-dev-sdk)
+- Created new API endpoint `/api/ai/promo-image/route.ts` for generating promotional product images using AI image generation
+- Enhanced AIChatPanel component with:
+  - New ChatMessage interface with imageUrl, actionType, actionData fields
+  - 4 new AI Action buttons: Analisa Selisih, Sesuaikan Selisih, Cari Penyebab, Gambar Promo
+  - handleAiAction() function for discrepancy analysis, adjustment, and root cause finding
+  - generatePromoImage() function for promo image generation
+  - Promo product selection UI with clickable product buttons
+  - Image display in chat with download capability
+  - Discrepancy action buttons (Sesuaikan Selisih, Cari Penyebab) shown after analysis
+  - Custom loading indicators for discrepancy and promo operations
+  - "promo [product name]" command handling in sendMessage
+  - Updated welcome message with AI Tools section
+
+Stage Summary:
+- New API: /api/ai/discrepancy (analyze, adjust, root_cause)
+- New API: /api/ai/promo-image (product promo image generation)
+- AIChatPanel now has 4 AI action buttons for financial discrepancy management
+- Promo image generation with product selection and download
+- All endpoints verified (405 on GET = correct POST-only)

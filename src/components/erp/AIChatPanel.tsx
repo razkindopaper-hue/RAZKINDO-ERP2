@@ -7,7 +7,8 @@ import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api-client';
 import {
   X, Bot, Trash2, Send, Plus, Download, Volume2, VolumeX,
-  Megaphone, Users, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp
+  Megaphone, Users, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp,
+  Search, Wrench, Image, AlertTriangle, ShieldCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,9 @@ import { formatCurrency, escapeHtml } from '@/lib/erp-helpers';
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  imageUrl?: string;
+  actionType?: 'discrepancy_analyze' | 'discrepancy_adjust' | 'root_cause' | 'promo_image';
+  actionData?: any;
 }
 
 interface BroadcastTarget {
@@ -69,6 +73,11 @@ export default function AIChatPanel() {
   const [targetAllType, setTargetAllType] = useState<'all_customers' | 'all_employees' | null>(null);
   const [broadcastResult, setBroadcastResult] = useState<{ sent: number; failed: number; results: any[] } | null>(null);
   const [showBroadcastTargetSelect, setShowBroadcastTargetSelect] = useState(false);
+
+  // Discrepancy & Promo state
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [discrepancyLoading, setDiscrepancyLoading] = useState(false);
+  const [promoProducts, setPromoProducts] = useState<any[]>([]);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -120,6 +129,14 @@ export default function AIChatPanel() {
     { label: '📄 Buat MOU', query: 'buat mou' },
   ];
 
+  // AI Action buttons (super_admin only)
+  const aiActions = isSuperAdmin ? [
+    { label: '🔍 Analisa Selisih', icon: Search, action: 'discrepancy_analyze', color: 'text-amber-600' },
+    { label: '🔧 Sesuaikan Selisih', icon: Wrench, action: 'discrepancy_adjust', color: 'text-blue-600' },
+    { label: '🔎 Cari Penyebab', icon: AlertTriangle, action: 'root_cause', color: 'text-red-600' },
+    { label: '🎨 Gambar Promo', icon: Image, action: 'promo_image', color: 'text-purple-600' },
+  ] : [];
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, broadcastResult]);
@@ -133,7 +150,7 @@ export default function AIChatPanel() {
       setMessages([{
         role: 'assistant',
         content: isSuperAdmin
-          ? 'Halo! 👋 Saya **Asisten Keuangan Razkindo** — AI Financial Analyst.\n\n🧠 Kini dengan kecerdasan finansial lengkap!\n\n**Analisis Keuangan:**\n• 🔍 Cek HPP & Profit terkumpul\n• 🛒 Saran restock berdasarkan pola penjualan\n• 📊 Analisa tren penjualan (bulanan/kuartal)\n• 🎯 Prediksi konsumen yang akan order\n• 💵 Audit uang masuk & deteksi selisih\n• 🏥 Cek kesehatan keuangan\n\n**Data Cepat:**\n• 💰 Penjualan hari/minggu/bulan\n• 👥 Per sales • 📋 Piutang\n• 📦 Stok • 📝 Penawaran • 📄 MOU\n\n📢 Tab **Broadcast** untuk kirim promo!'
+          ? 'Halo! 👋 Saya **Asisten Keuangan Razkindo** — AI Financial Analyst.\n\n🧠 Kini dengan kecerdasan finansial lengkap!\n\n**Analisis Keuangan:**\n• 🔍 Cek HPP & Profit terkumpul\n• 🛒 Saran restock berdasarkan pola penjualan\n• 📊 Analisa tren penjualan (bulanan/kuartal)\n• 🎯 Prediksi konsumen yang akan order\n• 💵 Audit uang masuk & deteksi selisih\n• 🏥 Cek kesehatan keuangan\n\n**🆕 AI Tools (tombol di bawah):**\n• 🔍 **Analisa Selisih** — Deteksi discrepancy data\n• 🔧 **Sesuaikan Selisih** — Auto-fix otomatis\n• 🔎 **Cari Penyebab** — Akar masalah selisih\n• 🎨 **Gambar Promo** — Buat gambar promosi produk\n\n**Data Cepat:**\n• 💰 Penjualan hari/minggu/bulan\n• 👥 Per sales • 📋 Piutang\n• 📦 Stok • 📝 Penawaran • 📄 MOU\n\n📢 Tab **Broadcast** untuk kirim promo!'
           : 'Halo! 👋 Saya **Asisten Data Razkindo**.\n\nKlik tombol cepat atau tanya apa saja:\n• 💰 Penjualan hari/minggu/bulan\n• 👥 Penjualan per sales\n• 📋 Piutang & konsumen\n• 📦 Stok produk\n• 📝 Buat penawaran\n• 📄 Buat MOU\n\n📢 Klik tab **Broadcast** untuk kirim promo!'
       }]);
     }
@@ -210,6 +227,55 @@ export default function AIChatPanel() {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setLoading(true);
+
+    // Check for promo image command
+    const promoMatch = userMsg.toLowerCase().match(/^promo\s+(.+)/);
+    if (promoMatch && isSuperAdmin) {
+      const productName = promoMatch[1].trim();
+      // Check if it's a number reference to the last loaded products
+      const numMatch = productName.match(/^(\d+)$/);
+      if (numMatch && promoProducts.length > 0) {
+        const idx = parseInt(numMatch[1]) - 1;
+        if (idx >= 0 && idx < promoProducts.length) {
+          setLoading(false);
+          await generatePromoImage(promoProducts[idx]);
+          return;
+        }
+      }
+      // Try to find product by name
+      const found = promoProducts.find((p: any) =>
+        p.name?.toLowerCase().includes(productName.toLowerCase())
+      );
+      if (found) {
+        setLoading(false);
+        await generatePromoImage(found);
+        return;
+      }
+      // Generate with custom name if no product found
+      setPromoLoading(true);
+      try {
+        const data = await apiFetch<{ success: boolean; imageUrl: string }>('/api/ai/promo-image', {
+          method: 'POST',
+          body: JSON.stringify({ productName, customPrompt: undefined }),
+        });
+        if (data.success && data.imageUrl) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `✅ Gambar promo untuk **${productName}** berhasil dibuat!\n\nKlik gambar untuk download.`,
+            imageUrl: data.imageUrl,
+            actionType: 'promo_image',
+          }]);
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal generate gambar promo. Coba lagi.' }]);
+        }
+      } catch {
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal generate gambar promo. Coba lagi.' }]);
+      } finally {
+        setPromoLoading(false);
+        setLoading(false);
+      }
+      return;
+    }
 
     try {
       setLoadingType(isSuperAdmin && isFinancialAnalysis(userMsg) ? 'financial' : 'general');
@@ -774,6 +840,157 @@ export default function AIChatPanel() {
 
   const clearChat = () => { setMessages([]); };
 
+  // ============ AI ACTIONS ============
+
+  const handleAiAction = async (action: string) => {
+    if (action === 'discrepancy_analyze') {
+      setDiscrepancyLoading(true);
+      setMessages(prev => [...prev, { role: 'user', content: '🔍 Analisa semua selisih data keuangan' }]);
+      try {
+        const data = await apiFetch<{ success: boolean; data: any }>('/api/ai/discrepancy', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'analyze' }),
+        });
+        if (data.success) {
+          const d = data.data;
+          const summary = d.summary;
+          let reply = '🔍 **HASIL ANALISA SELISIH**\n\n';
+
+          if (!summary.hasAnyDiscrepancy) {
+            reply += '✅ **Semua data tersinkronisasi!** Tidak ada selisih yang ditemukan.\n\n';
+            reply += '• Pool HPP: ✓ OK\n';
+            reply += '• Pool Profit: ✓ OK\n';
+            reply += '• Transaksi: ✓ OK\n';
+            reply += '• Pembayaran: ✓ OK\n';
+          } else {
+            if (summary.poolDiscrepancy) {
+              const pva = d.poolVsActual;
+              reply += '⚠️ **Pool vs Aktual Pembayaran:**\n';
+              reply += `• HPP: Pool **${formatCurrency(pva.hppPaidBalance)}** vs Aktual **${formatCurrency(pva.actualHppSum)}** (Selisih: **${formatCurrency(Math.abs(pva.hppDiff))}**)\n`;
+              reply += `• Profit: Pool **${formatCurrency(pva.profitPaidBalance)}** vs Aktual **${formatCurrency(pva.actualProfitSum)}** (Selisih: **${formatCurrency(Math.abs(pva.profitDiff))}**)\n\n`;
+            }
+            if (summary.physicalDiscrepancy) {
+              const pvp = d.poolVsPhysical;
+              reply += '⚠️ **Pool vs Dana Fisik:**\n';
+              reply += `• Total Pool: **${formatCurrency(pvp.totalPool)}**\n`;
+              reply += `• Bank: ${formatCurrency(pvp.totalBank)} + Brankas: ${formatCurrency(pvp.totalCashBox)} + Kurir: ${formatCurrency(pvp.totalCourier)} = **${formatCurrency(pvp.totalPhysical)}**\n`;
+              reply += `• Selisih: **${formatCurrency(Math.abs(pvp.poolPhysicalDiff))}**\n\n`;
+            }
+            if (summary.inconsistencyCount > 0) {
+              reply += `⚠️ **${summary.inconsistencyCount} Transaksi Inkonsisten** (total ≠ paid + remaining)\n`;
+              d.transactionInconsistencies.slice(0, 5).forEach((t: any) => {
+                reply += `  • ${t.invoiceNo}: total ${formatCurrency(t.total)} vs ${formatCurrency(t.expectedTotal)} (selisih ${formatCurrency(Math.abs(t.discrepancy))})\n`;
+              });
+              reply += '\n';
+            }
+            if (summary.paymentMismatchCount > 0) {
+              reply += `⚠️ **${summary.paymentMismatchCount} Payment Mismatch** (paid_amount ≠ sum payments)\n`;
+              d.paymentMismatches.slice(0, 5).forEach((pm: any) => {
+                reply += `  • ${pm.invoiceNo}: recorded ${formatCurrency(pm.transactionPaidAmount)} vs actual ${formatCurrency(pm.actualPaymentSum)} (selisih ${formatCurrency(Math.abs(pm.discrepancy))})\n`;
+              });
+              reply += '\n';
+            }
+            if (summary.receivableMismatchCount > 0) {
+              reply += `⚠️ **${summary.receivableMismatchCount} Piutang Mismatch**\n\n`;
+            }
+            reply += '---\n💡 Gunakan **🔧 Sesuaikan Selisih** untuk auto-fix, atau **🔎 Cari Penyebab** untuk analisa akar masalah.';
+          }
+          setMessages(prev => [...prev, { role: 'assistant', content: reply, actionType: 'discrepancy_analyze', actionData: d }]);
+        }
+      } catch {
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal menganalisa selisih. Coba lagi.' }]);
+      } finally {
+        setDiscrepancyLoading(false);
+      }
+    } else if (action === 'discrepancy_adjust') {
+      setDiscrepancyLoading(true);
+      setMessages(prev => [...prev, { role: 'user', content: '🔧 Sesuaikan semua selisih data keuangan' }]);
+      try {
+        const data = await apiFetch<{ success: boolean; fixes: string[]; errors: string[] }>('/api/ai/discrepancy', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'adjust' }),
+        });
+        if (data.success) {
+          let reply = '🔧 **HASIL PENYESUAIAN SELISIH**\n\n';
+          if (data.fixes.length > 0) {
+            reply += '✅ **Perbaikan yang dilakukan:**\n';
+            data.fixes.forEach((fix: string) => { reply += `  • ${fix}\n`; });
+          }
+          if (data.errors.length > 0) {
+            reply += '\n❌ **Error:**\n';
+            data.errors.forEach((err: string) => { reply += `  • ${err}\n`; });
+          }
+          if (data.fixes.length === 0 && data.errors.length === 0) {
+            reply += '✅ Semua data sudah tersinkronisasi, tidak perlu penyesuaian.';
+          }
+          setMessages(prev => [...prev, { role: 'assistant', content: reply, actionType: 'discrepancy_adjust' }]);
+        }
+      } catch {
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal menyesuaikan selisih. Coba lagi.' }]);
+      } finally {
+        setDiscrepancyLoading(false);
+      }
+    } else if (action === 'root_cause') {
+      setDiscrepancyLoading(true);
+      setMessages(prev => [...prev, { role: 'user', content: '🔎 Cari akar penyebab selisih data keuangan' }]);
+      try {
+        const data = await apiFetch<{ success: boolean; analysis: string }>('/api/ai/discrepancy', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'root_cause' }),
+        });
+        if (data.success) {
+          setMessages(prev => [...prev, { role: 'assistant', content: data.analysis, actionType: 'root_cause' }]);
+        }
+      } catch {
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal menganalisis akar penyebab. Coba lagi.' }]);
+      } finally {
+        setDiscrepancyLoading(false);
+      }
+    } else if (action === 'promo_image') {
+      // Load products for selection
+      setMessages(prev => [...prev, { role: 'user', content: '🎨 Buat gambar promo produk' }]);
+      try {
+        const prodData = await apiFetch<{ products: any[] }>('/api/products?limit=20');
+        const prods = (prodData.products || []).filter((p: any) => p.isActive !== false).slice(0, 15);
+        setPromoProducts(prods);
+        let reply = '🎨 **Buat Gambar Promo Produk**\n\nPilih produk untuk dibuatkan gambar promosi:\n\n';
+        prods.forEach((p: any, i: number) => {
+          reply += `${i + 1}. **${p.name}** — ${formatCurrency(p.sellingPrice)} (Stok: ${p.globalStock || 0})\n`;
+        });
+        reply += '\nKetik nomor produk atau nama produk, contoh: **promo semen tiga roda** atau **promo 1**';
+        setMessages(prev => [...prev, { role: 'assistant', content: reply, actionType: 'promo_image', actionData: prods }]);
+      } catch {
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal memuat daftar produk. Coba lagi.' }]);
+      }
+    }
+  };
+
+  // Handle promo image generation from product selection
+  const generatePromoImage = async (product: any) => {
+    setPromoLoading(true);
+    setMessages(prev => [...prev, { role: 'user', content: `🎨 Generate gambar promo untuk ${product.name}` }]);
+    try {
+      const data = await apiFetch<{ success: boolean; imageUrl: string; prompt: string }>('/api/ai/promo-image', {
+        method: 'POST',
+        body: JSON.stringify({ productId: product.id, productName: product.name, category: product.category, sellingPrice: product.sellingPrice }),
+      });
+      if (data.success && data.imageUrl) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `✅ Gambar promo untuk **${product.name}** berhasil dibuat!\n\n💰 Harga: ${formatCurrency(product.sellingPrice)}\n📦 Stok: ${product.globalStock || 0}\n\nKlik gambar untuk download.`,
+          imageUrl: data.imageUrl,
+          actionType: 'promo_image',
+        }]);
+      } else {
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal generate gambar promo. Coba lagi.' }]);
+      }
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Gagal generate gambar promo. Coba lagi.' }]);
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -781,26 +998,81 @@ export default function AIChatPanel() {
     }
   };
 
-  const renderMessageContent = (content: string) => {
-    return content.split('\n').map((line, i) => {
-      // Safe rendering: escape HTML first, then only allow **bold** markdown
-      const escaped = escapeHtml(line);
-      // Split by ** markers, alternate between plain text and bold
-      const parts = escaped.split(/\*\*/);
-      const rendered = parts.map((part, idx) => {
-        if (idx % 2 === 1) return <strong key={idx}>{part}</strong>;
-        return part;
-      });
-      if (line.trim().startsWith('•') || line.trim().startsWith('- ')) {
-        return (
-          <div key={i} className="flex gap-2 ml-1">
-            <span className="text-primary mt-0.5">•</span>
-            <span>{rendered}</span>
+  const renderMessageContent = (content: string, msg?: ChatMessage) => {
+    return (
+      <>
+        {content.split('\n').map((line, i) => {
+          // Safe rendering: escape HTML first, then only allow **bold** markdown
+          const escaped = escapeHtml(line);
+          // Split by ** markers, alternate between plain text and bold
+          const parts = escaped.split(/\*\*/);
+          const rendered = parts.map((part, idx) => {
+            if (idx % 2 === 1) return <strong key={idx}>{part}</strong>;
+            return part;
+          });
+          if (line.trim().startsWith('•') || line.trim().startsWith('- ')) {
+            return (
+              <div key={i} className="flex gap-2 ml-1">
+                <span className="text-primary mt-0.5">•</span>
+                <span>{rendered}</span>
+              </div>
+            );
+          }
+          return <div key={i}>{rendered.length > 0 ? rendered : '\u00A0'}</div>;
+        })}
+        {/* Promo image display */}
+        {msg?.imageUrl && (
+          <div className="mt-2">
+            <img
+              src={msg.imageUrl}
+              alt="Promo image"
+              className="w-full rounded-lg border cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => {
+                const link = document.createElement('a');
+                link.href = msg.imageUrl!;
+                link.download = 'promo-image.png';
+                link.click();
+              }}
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">Klik gambar untuk download</p>
           </div>
-        );
-      }
-      return <div key={i}>{rendered.length > 0 ? rendered : '\u00A0'}</div>;
-    });
+        )}
+        {/* Promo product selection buttons */}
+        {msg?.actionType === 'promo_image' && msg?.actionData && !msg?.imageUrl && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {msg.actionData.slice(0, 10).map((p: any, i: number) => (
+              <button
+                key={p.id}
+                onClick={() => generatePromoImage(p)}
+                disabled={promoLoading}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+              >
+                🎨 {p.name?.length > 15 ? p.name.slice(0, 15) + '...' : p.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Discrepancy action buttons */}
+        {msg?.actionType === 'discrepancy_analyze' && msg?.actionData?.summary?.hasAnyDiscrepancy && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => handleAiAction('discrepancy_adjust')}
+              disabled={discrepancyLoading}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors disabled:opacity-50 dark:bg-blue-900 dark:text-blue-300"
+            >
+              <Wrench className="w-3 h-3" /> Sesuaikan Selisih
+            </button>
+            <button
+              onClick={() => handleAiAction('root_cause')}
+              disabled={discrepancyLoading}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-full bg-red-100 text-red-700 hover:bg-red-200 transition-colors disabled:opacity-50 dark:bg-red-900 dark:text-red-300"
+            >
+              <AlertTriangle className="w-3 h-3" /> Cari Penyebab
+            </button>
+          </div>
+        )}
+      </>
+    );
   };
 
   if (user?.role !== 'super_admin') return null;
@@ -886,7 +1158,7 @@ export default function AIChatPanel() {
                       "max-w-[85%] px-3 py-2 rounded-2xl text-sm leading-relaxed relative group",
                       msg.role === 'user' ? "bg-primary text-primary-foreground rounded-br-md" : "bg-muted rounded-bl-md"
                     )}>
-                      {msg.role === 'assistant' ? renderMessageContent(msg.content) : msg.content}
+                      {msg.role === 'assistant' ? renderMessageContent(msg.content, msg) : msg.content}
                       {/* TTS play button on assistant messages */}
                       {msg.role === 'assistant' && (
                         <button
@@ -900,7 +1172,7 @@ export default function AIChatPanel() {
                     </div>
                   </div>
                 ))}
-                {loading && (
+                {loading && !discrepancyLoading && !promoLoading && (
                   <div className="flex justify-start">
                     <div className="bg-muted px-4 py-2 rounded-2xl rounded-bl-md">
                       <div className="flex items-center gap-1.5">
@@ -916,6 +1188,26 @@ export default function AIChatPanel() {
                     </div>
                   </div>
                 )}
+                {discrepancyLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-amber-50 dark:bg-amber-950 px-4 py-2 rounded-2xl rounded-bl-md">
+                      <div className="flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                        <span className="text-xs text-amber-700 dark:text-amber-300 ml-1">🔍 Menganalisa selisih data keuangan...</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {promoLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-purple-50 dark:bg-purple-950 px-4 py-2 rounded-2xl rounded-bl-md">
+                      <div className="flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 text-purple-600 animate-spin" />
+                        <span className="text-xs text-purple-700 dark:text-purple-300 ml-1">🎨 Membuat gambar promo...</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
 
@@ -927,6 +1219,33 @@ export default function AIChatPanel() {
                       <button key={p.label} onClick={() => sendMessage(p.query)}
                         className="text-[11px] px-2 py-1.5 rounded-full border bg-background hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground whitespace-nowrap">
                         {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Action Buttons */}
+              {isSuperAdmin && aiActions.length > 0 && (
+                <div className="px-3 pb-1.5 flex-shrink-0">
+                  <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+                    {aiActions.map((action) => (
+                      <button
+                        key={action.action}
+                        onClick={() => handleAiAction(action.action)}
+                        disabled={loading || discrepancyLoading || promoLoading}
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium rounded-lg border whitespace-nowrap transition-all disabled:opacity-40",
+                          action.color,
+                          "hover:bg-muted/50"
+                        )}
+                      >
+                        {discrepancyLoading || promoLoading ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <action.icon className="w-3 h-3" />
+                        )}
+                        {action.label}
                       </button>
                     ))}
                   </div>
