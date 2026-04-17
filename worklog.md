@@ -429,3 +429,39 @@ Stage Summary:
 - Files modified: src/components/erp/FinanceModule.tsx
 - Key improvement: Sync button now shows preview dialog first → user must confirm after seeing before/after values and warnings
 - Preventive measures: API blocks sync-to-zero, blocks >80% reduction, and blocks both-HPP-and-Profit-to-zero without force=true
+
+---
+Task ID: pool-sync-safety
+Agent: Main Agent
+Task: Fix Pool Dana Komposisi Dana becoming 0 after sync — add preventive measures and discrepancy warnings
+
+Work Log:
+- Investigated full flow: sync_from_payments → get_payment_pool_sums RPC → overwrites pool balances with payment sums
+- Root cause: get_payment_pool_sums only counts payments deposited to brankas/bank (has cashBoxId/bankAccountId). Courier cash payments have NO cashBoxId → result = 0 → pool overwritten to 0
+- Added `computeSyncPreview()` helper in pools/route.ts that calculates current vs new values, courier pending amounts, payment counts, changes, warnings
+- Added `preview_sync` action to POST /api/finance/pools — shows what sync would change WITHOUT applying
+- Added safety blocks to `sync_from_payments`:
+  - Blocks sync if total pool would become 0 (code: SYNC_WOULD_ZERO)
+  - Blocks sync if >80% reduction (code: SYNC_DRASTIC_CHANGE)
+  - Blocks sync if both HPP and Profit would become 0 (code: SYNC_WOULD_ZERO_BOTH)
+  - All blocks can be bypassed with `force: true` parameter
+- Added frontend Sync Preview Dialog in FinanceModule.tsx:
+  - Before/After comparison with delta indicators
+  - Total Pool change visualization (green/amber/red border based on severity)
+  - Courier pending amounts display (HPP/Profit not yet deposited)
+  - Payment counts context (total vs brankas/bank deposited)
+  - Changes detail list
+  - Warning banners for dangerous operations
+  - Smart action buttons: safe=green confirm, dangerous=red force with AlertDialog confirmation
+- Added "Preview" button alongside existing "Sinkron" button
+- Fixed AI discrepancy adjust action with same safety checks (blocks pool-to-zero and drastic changes)
+- Added AlertDialogTrigger import to FinanceModule.tsx
+- Lint: 0 errors, 0 warnings
+- Server: HTTP 200
+
+Stage Summary:
+- Pool dana sync can NO LONGER silently zero out balances
+- Users must preview changes before confirming sync
+- Courier pending amounts are shown as context for why sync result might be lower than expected
+- AI auto-adjust also has safety checks now
+- Files modified: src/app/api/finance/pools/route.ts, src/app/api/ai/discrepancy/route.ts, src/components/erp/FinanceModule.tsx
