@@ -23,12 +23,17 @@ const nextConfig: NextConfig = {
   turbopack: {},
 
   // Webpack config only used when building with --webpack flag
-  webpack: (config, { isServer }) => {
+  webpack: (config, { dev, isServer }) => {
     if (isServer) {
       if (!config.externals) config.externals = [];
       if (Array.isArray(config.externals)) {
         config.externals.push('sharp', 'pg-native');
       }
+    }
+    if (dev) {
+      // BUG-05 fix: conditional source maps (only disable if LOW_MEMORY_MODE)
+      config.devtool = process.env.LOW_MEMORY_MODE === '1' ? false : 'eval-cheap-source-map';
+      config.parallelism = 1;
     }
     return config;
   },

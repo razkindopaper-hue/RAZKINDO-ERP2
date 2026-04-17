@@ -29,6 +29,7 @@ export class MemoryGuard {
   private criticalCallbacks: CleanupCallback[] = [];
   private lastWarningLoggedAt: number = 0;
   private baselineHeapMB: number = 0;
+  private baselineRefreshed: boolean = false;
   private criticalDebounceMs: number = 300_000; // 5 min between logs
 
   private constructor() {}
@@ -82,7 +83,11 @@ export class MemoryGuard {
     // AND usage is high. A high percentage alone is not pressure — V8 naturally
     // fills the heap to ~95% and grows it on demand.
     const heapGrowthMB = heapTotalMB - this.baselineHeapMB;
-    const underPressure = percent >= 95 && heapGrowthMB > 100;
+    // For LOW_MEMORY_MODE: lower thresholds; otherwise use generous thresholds
+    // since V8 naturally fills heap to 95%+ and growth from baseline is normal during startup
+    const growthThreshold = process.env.LOW_MEMORY_MODE === '1' ? 200 : 400;
+    const pressureThreshold = process.env.LOW_MEMORY_MODE === '1' ? 95 : 98;
+    const underPressure = percent >= pressureThreshold && heapGrowthMB > growthThreshold;
 
     return {
       used: Math.round(heapUsedMB * 100) / 100,
@@ -121,6 +126,7 @@ export class MemoryGuard {
   // -----------------------------------------------------------------------
 
   private check(): void {
+    this.maybeRefreshBaseline();
     const stats = this.getStats();
     const now = Date.now();
 
@@ -141,6 +147,24 @@ export class MemoryGuard {
       this.suggestCleanup();
     }
     // Normal V8 heap utilization (85-95%) is NOT logged — it's expected behavior.
+  }
+
+  /**
+   * Refresh baseline after 1 hour of uptime so organic heap growth
+   * is not mistaken for a memory leak (BUG-03 fix).
+   */
+  private maybeRefreshBaseline(): void {
+    if (this.baselineRefreshed) return;
+    const uptimeSeconds = process.uptime();
+    if (uptimeSeconds > 3600) { // after 1 hour
+      const mem = process.memoryUsage();
+      const newBaseline = mem.heapTotal / (1024 * 1024);
+      console.log(
+        `[MemoryGuard] Memperbarui baseline: ${this.baselineHeapMB.toFixed(0)}MB → ${newBaseline.toFixed(0)}MB`
+      );
+      this.baselineHeapMB = newBaseline;
+      this.baselineRefreshed = true;
+    }
   }
 }
 

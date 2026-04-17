@@ -870,9 +870,7 @@ class TransactionQueueManager {
         // Operasi tidak bisa diproses sekarang — coba operasi lain
         break;
       }
-
-      // Operasi berhasil dimulai — hapus dari antrian
-      this.pendingQueue.shift();
+      // NOTE: tryProcessOperation already shifts from pendingQueue (BUG-01 fix — no double-shift)
     }
   }
 

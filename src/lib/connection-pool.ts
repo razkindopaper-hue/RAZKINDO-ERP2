@@ -33,7 +33,7 @@ const TRANSACTION_POOL_CONFIG: PoolConfig = {
   min: 2,  // Min idle connections
   idleTimeoutMillis: 30_000,      // Reclaim idle connections after 30s
   connectionTimeoutMillis: 10_000, // Fail fast if no connection in 10s
-  maxLifetimeMs: 3_600_000,       // Recycle connections after 1 hour
+  // NOTE: maxLifetimeMs is NOT a valid pg.PoolConfig option (BUG-04 fix — removed)
   allowExitOnIdle: false,         // Never exit — Next.js dev server must stay alive
 };
 
@@ -43,7 +43,7 @@ const SESSION_POOL_CONFIG: PoolConfig = {
   min: 1,
   idleTimeoutMillis: 60_000,      // Longer idle timeout for admin ops
   connectionTimeoutMillis: 30_000, // Longer timeout for DDL operations
-  maxLifetimeMs: 3_600_000,
+  // NOTE: maxLifetimeMs is NOT a valid pg.PoolConfig option (BUG-04 fix — removed)
   allowExitOnIdle: false,
 };
 

@@ -145,8 +145,11 @@ interface MemoryCheck {
 
 function checkMemory(): MemoryCheck {
   const stats = memoryGuard.getStats();
+  // V8 naturally fills heap to 85-95% — only warn if actually under pressure (leak detected)
+  // or if RSS is dangerously high (>1500MB suggests imminent OOM kill)
+  const isWarning = stats.underPressure || stats.rss > 1500;
   return {
-    status: stats.percent > 80 ? 'warning' : 'ok',
+    status: isWarning ? 'warning' : 'ok',
     used_mb: stats.used,
     total_mb: stats.total,
     percent: stats.percent,

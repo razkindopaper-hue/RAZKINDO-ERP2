@@ -156,6 +156,7 @@ export class BatchOptimizer {
     cacheHits: 0,
     dbFetches: 0,
     chunkedInserts: 0,
+    chunkedUpdates: 0,
   };
 
   constructor(config?: Partial<BatchOptimizerConfig>) {
@@ -453,7 +454,7 @@ export class BatchOptimizer {
       );
     }
 
-    this.stats.chunkedInserts++;
+    this.stats.chunkedUpdates++;
   }
 
   // =================================================================
@@ -596,6 +597,7 @@ export class BatchOptimizer {
     cacheHits: number;
     dbFetches: number;
     chunkedInserts: number;
+    chunkedUpdates: number;
     inflightCount: number;
     cacheSize: number;
     cacheHitRate: number;
@@ -612,6 +614,7 @@ export class BatchOptimizer {
       cacheHits: this.stats.cacheHits,
       dbFetches: this.stats.dbFetches,
       chunkedInserts: this.stats.chunkedInserts,
+      chunkedUpdates: this.stats.chunkedUpdates,
       inflightCount: this.inflightRequests.size,
       cacheSize: this.statementCache.size,
       cacheHitRate: Math.round(cacheHitRate * 100) / 100,
@@ -627,6 +630,7 @@ export class BatchOptimizer {
       cacheHits: 0,
       dbFetches: 0,
       chunkedInserts: 0,
+      chunkedUpdates: 0,
     };
   }
 
