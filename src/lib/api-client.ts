@@ -91,7 +91,10 @@ export async function apiFetch<T>(
   
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    // Use longer timeout for write operations (transactions, uploads, etc.)
+    const isWriteOp = options.method && options.method !== 'GET' && options.method !== 'HEAD';
+    const timeoutMs = isWriteOp ? 60000 : 30000; // 60s for writes, 30s for reads
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     // Link caller's abort signal to our controller
     if (options.signal) {

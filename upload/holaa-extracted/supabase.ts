@@ -255,8 +255,9 @@ const rpcHandlers: Record<string, RpcFunction> = {
     }
   },
 
-  // FIX BUG-4: Wrap in prisma.$transaction with Serializable isolation to prevent race conditions
   async batch_decrement_centralized_stock(params) {
+    // FIX BUG-4: Bungkus dalam prisma.$transaction (Serializable) untuk mencegah
+    // race condition antara pengecekan stok dan pengurangannya secara bersamaan.
     const { p_product_ids, p_quantities } = params;
     try {
       const productIds: string[] = typeof p_product_ids === 'string' ? JSON.parse(p_product_ids) : p_product_ids;
@@ -266,8 +267,8 @@ const rpcHandlers: Record<string, RpcFunction> = {
         return { data: null, error: { message: 'product_ids and quantities arrays must have the same length', code: 'PGRST116' } };
       }
 
-      const results = await prisma.$transaction(async (tx) => {
-        // Read inside transaction to prevent dirty reads
+      const results: any[] = await prisma.$transaction(async (tx) => {
+        // Re-read stok di dalam transaksi untuk menghindari dirty read
         const products = await tx.product.findMany({
           where: { id: { in: productIds } },
           select: { id: true, globalStock: true, name: true },
@@ -284,7 +285,7 @@ const rpcHandlers: Record<string, RpcFunction> = {
           }
         }
 
-        // Apply all deductions atomically
+        // Apply semua pengurangan di dalam transaksi yang sama (atomik)
         const txResults: any[] = [];
         for (let i = 0; i < productIds.length; i++) {
           const updated = await tx.product.update({

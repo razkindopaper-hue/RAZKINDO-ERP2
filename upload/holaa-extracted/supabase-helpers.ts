@@ -19,11 +19,12 @@ export function snakeToCamel(str: string): string {
 /**
  * Convert all keys in an object from snake_case to camelCase
  * Recursively handles nested objects and arrays
+ *
+ * FIX BUG-3: Return null (bukan {}) jika input null,
+ * supaya null-check di caller (if (!userCamel)) berfungsi benar.
  */
-// FIX BUG-3: Must return null (not {} as T) so null-checks in calling code work correctly
-// Type signature returns T (not T|null) for backward compat — callers already guard with if(!row) before calling
-export function toCamelCase<T = Record<string, any>>(row: Record<string, any> | null): T {
-  if (!row) return null as unknown as T;
+export function toCamelCase<T = Record<string, any>>(row: Record<string, any> | null): T | null {
+  if (!row) return null;
   const result: Record<string, any> = {};
   for (const [key, value] of Object.entries(row)) {
     const camelKey = snakeToCamel(key);

@@ -187,7 +187,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const txTimer = perfMonitor.timer('transaction.create_total');
+  const _txStartTime = Date.now();
   perfMonitor.incrementCounter('transactions.create_requested');
+  console.log('[TX-POST] Transaction request received');
   try {
     // Auth check — single DB query for verification + role
     const authResult = await verifyAndGetAuthUser(request.headers.get('authorization'), { role: true });
@@ -909,33 +911,36 @@ export async function POST(request: NextRequest) {
         });
 
         // Create receivable for piutang/tempo sales AND cash sales with courier (courier collects payment)
+        // Fire-and-forget — don't block the response
         if (data.type === 'sale' && (paymentStatus === 'unpaid' || paymentStatus === 'partial') && (data.paymentMethod === 'piutang' || data.paymentMethod === 'tempo' || (data.paymentMethod === 'cash' && hasCourier))) {
-          try {
-            let customerName = 'Walk-in';
-            let customerPhone = '';
-            if (cleanCustomerId) {
-              const { data: customer } = await db
-                .from('customers')
-                .select('name, phone')
-                .eq('id', cleanCustomerId)
-                .single();
-              customerName = customer?.name || 'Walk-in';
-              customerPhone = customer?.phone || '';
+          (async () => {
+            try {
+              let customerName = 'Walk-in';
+              let customerPhone = '';
+              if (cleanCustomerId) {
+                const { data: customer } = await db
+                  .from('customers')
+                  .select('name, phone')
+                  .eq('id', cleanCustomerId)
+                  .single();
+                customerName = customer?.name || 'Walk-in';
+                customerPhone = customer?.phone || '';
+              }
+              await db.from('receivables').insert({
+                id: generateId(),
+                transaction_id: transactionId,
+                customer_name: customerName,
+                customer_phone: customerPhone,
+                total_amount: total,
+                paid_amount: paidAmount,
+                remaining_amount: remainingAmount,
+                assigned_to_id: data.createdById,
+                priority: data.dueDate && new Date(data.dueDate) < new Date() ? 'high' : 'normal',
+              });
+            } catch (receivableError) {
+              console.error('[RECEIVABLE] Auto-create error (non-blocking):', receivableError);
             }
-            await db.from('receivables').insert({
-              id: generateId(),
-              transaction_id: transactionId,
-              customer_name: customerName,
-              customer_phone: customerPhone,
-              total_amount: total,
-              paid_amount: paidAmount,
-              remaining_amount: remainingAmount,
-              assigned_to_id: data.createdById,
-              priority: data.dueDate && new Date(data.dueDate) < new Date() ? 'high' : 'normal',
-            });
-          } catch (receivableError) {
-            console.error('[RECEIVABLE] Auto-create error (non-blocking):', receivableError);
-          }
+          })().catch(console.error);
         }
 
         // Fetch complete transaction with all relations
@@ -987,21 +992,25 @@ export async function POST(request: NextRequest) {
 
     // Low stock alerts (fire-and-forget)
     if (data.type === 'sale' && items.length > 0) {
-      const productIds = items.map((item: any) => item.productId);
-      const { data: productsAfterDeduction } = await db
-        .from('products')
-        .select('id, name, global_stock, min_stock')
-        .in('id', productIds);
-      for (const product of (productsAfterDeduction || [])) {
-        if (product.global_stock <= product.min_stock) {
-          createEvent(db, 'stock_low', {
-            productId: product.id,
-            productName: product.name,
-            currentStock: product.global_stock,
-            minStock: product.min_stock
-          });
-        }
-      }
+      (async () => {
+        try {
+          const itemProductIds = items.map((item: any) => item.productId);
+          const { data: productsAfterDeduction } = await db
+            .from('products')
+            .select('id, name, global_stock, min_stock')
+            .in('id', itemProductIds);
+          for (const product of (productsAfterDeduction || [])) {
+            if (product.global_stock <= product.min_stock) {
+              createEvent(db, 'stock_low', {
+                productId: product.id,
+                productName: product.name,
+                currentStock: product.global_stock,
+                minStock: product.min_stock
+              });
+            }
+          }
+        } catch (e) { console.error('[STOCK-ALERT] Error:', e); }
+      })().catch(console.error);
     }
 
     // Send WhatsApp notification for sales
@@ -1020,6 +1029,7 @@ export async function POST(request: NextRequest) {
 
     txTimer.stop();
     perfMonitor.incrementCounter('transactions.create_success');
+    console.log(`[TX-POST] Transaction ${invoiceNo} completed in ${Date.now() - _txStartTime}ms`);
 
     // Log idempotency key after successful transaction creation
     if (idempotencyKey) {
@@ -1051,7 +1061,7 @@ export async function POST(request: NextRequest) {
     const errorDetails = error instanceof Error
       ? `${error.message}\n${error.stack || 'no stack'}`
       : JSON.stringify(error);
-    console.error('Create transaction error:', errorDetails);
+    console.error(`Create transaction error (${Date.now() - _txStartTime}ms):`, errorDetails);
     // Persist error to file for debugging (won't be cleared by cron)
     try {
       const fs = require('fs');

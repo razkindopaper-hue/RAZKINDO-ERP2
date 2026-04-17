@@ -110,3 +110,22 @@ Stage Summary:
 - Bug 3 (PWA customer link): Fixed by generating PWA codes for existing customers. Customer codes: PT. Maju Jaya Sentosa=7CJ8FJ, CV. Berkah Sejahtera=QUL687, Toko Sumber Rezeki=HUDDXU, Restoran Nusantara=46NBCE
 - PWA links: /c/7CJ8FJ, /c/QUL687, /c/HUDDXU, /c/46NBCE — all return HTTP 200
 - IMPORTANT: PRODUCT_FINANCIAL_SELECT uses mixed case because Supabase DB has camelCase columns for `conversionRate` and `subUnit` (no @map in Prisma schema)
+---
+Task ID: 1
+Agent: main
+Task: Apply bug fixes from uploaded holaa.zip file
+
+Work Log:
+- Extracted holaa.zip containing 4 files with bug fixes
+- Applied BUG-3 fix: toCamelCase(null) now returns null instead of {} in supabase-helpers.ts
+- Applied BUG-4 fix: batch_decrement_centralized_stock wrapped in prisma.$transaction with Serializable isolation
+- Applied BUG-6 fix: Removed invalid Zod v4 { error: string } from z.enum() in validators.ts
+- Created new financial-snapshot API endpoint at /api/financial-snapshot/route.ts
+- Rebuilt production bundle and restarted server
+- Verified all fixes present in compiled production build
+
+Stage Summary:
+- All 4 bug fixes applied successfully
+- Production build completed and deployed
+- Financial snapshot API now available at GET /api/financial-snapshot
+- Server running on production standalone mode with latest code
