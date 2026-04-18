@@ -66,21 +66,12 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Copy Prisma schema + generated client (architecture-specific binaries included)
+# Copy all production node_modules from builder (ensures all deps are available)
+# This includes prisma, sharp, pg, and all their transitive dependencies
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy Prisma schema
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
-# Copy sharp native binaries
-COPY --from=builder /app/node_modules/sharp ./node_modules/sharp
-
-# Copy pg module (pure JS, no native binaries needed)
-COPY --from=builder /app/node_modules/pg ./node_modules/pg
-COPY --from=builder /app/node_modules/pg-connection-string ./node_modules/pg-connection-string
-COPY --from=builder /app/node_modules/pg-pool ./node_modules/pg-pool
-COPY --from=builder /app/node_modules/pg-types ./node_modules/pg-types
-COPY --from=builder /app/node_modules/pg-protocol ./node_modules/pg-protocol
-COPY --from=builder /app/node_modules/pg-pass ./node_modules/pg-pass
 
 # Copy event-queue mini-service (compiled JS + production deps)
 COPY --from=builder /app/mini-services/event-queue/index.js ./mini-services/event-queue/index.js
