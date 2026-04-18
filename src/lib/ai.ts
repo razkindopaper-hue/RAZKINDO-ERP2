@@ -15,7 +15,10 @@ import { Ollama } from 'ollama';
 let _ollama: Ollama | null = null;
 
 // Models to try in order (best quality first)
+// Default model from env, with fallback chain
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'llama3:8b';
 const MODEL_FALLBACKS = [
+  DEFAULT_MODEL,
   'llama3:8b',
   'llama3:latest',
   'mistral:latest',
