@@ -90,3 +90,30 @@ Stage Summary:
 - Promo Image: ⚠️ Placeholder SVG (no free image API connected yet)
 - Product Image: ⚠️ Placeholder SVG (no free image API connected yet)
 - Code pushed to GitHub: https://github.com/razkindopaper-hue/RAZKINDO-ERP2
+
+---
+Task ID: 1
+Agent: main
+Task: Fix follow-up pelanggan bug, push notifications, monitoring & cleanup APIs
+
+Work Log:
+- Diagnosed follow-up bug: Vaul Drawer traps pointer events at z-index 10001, Select portal renders at z-index 9999
+- Fixed by adding modal={false} to Follow-Up Drawer in CustomerManagementModule.tsx
+- Reviewed all push notification code (push-notification.ts, use-push-notification.ts, 4 API routes, sw.js)
+- VAPID keys configured (public + private in .env), all push routes working (401/405 expected)
+- Created GET /api/system/info: CPU usage, RAM, Disk, Uptime + Supabase table row counts
+  - Classifies tables: safe-to-delete, can-clean-old, core (never touch)
+  - Uses os module + df command for system metrics
+- Created POST /api/system/cleanup: Delete old or all data from safe tables
+  - Mode "all": full delete (only for events/logs/notifications)
+  - Mode "old": delete by age threshold (7-365 days, created_at column)
+  - Uses enforceSuperAdmin for authorization
+- MonitoringTab.tsx already existed in Settings but was broken (API routes missing from previous deletion)
+- TypeScript compilation clean, all API endpoints responding correctly
+
+Stage Summary:
+- Follow-up Select bug fixed with modal={false} on Drawer
+- Push notification system verified working (VAPID configured, all routes active)
+- System monitoring now functional in Settings > Monitoring tab (super_admin only)
+- Data cleanup feature functional in Settings > Monitoring > Pembersihan Data
+- Commit eb482c0 pushed to GitHub
