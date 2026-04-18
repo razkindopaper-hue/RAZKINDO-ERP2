@@ -3,11 +3,23 @@
 // =====================================================================
 // Replaces z-ai-web-dev-sdk for CasaOS deployment where Z.ai internal
 // API is not accessible.
+//
+// Features:
+// - Auto-retry on rate limit (429) with exponential backoff
+// - Fallback to alternative models if primary is unavailable
+// - Graceful error handling
 // =====================================================================
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 let _genAI: GoogleGenerativeAI | null = null;
+
+// Models to try in order (best quality first)
+const MODEL_FALLBACKS = [
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash-8b',
+];
 
 function getGenAI(): GoogleGenerativeAI {
   if (_genAI) return _genAI;
@@ -24,11 +36,61 @@ function getGenAI(): GoogleGenerativeAI {
   return _genAI;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isRetryableError(err: any): boolean {
+  const msg = err?.message || '';
+  return (
+    msg.includes('429') ||
+    msg.includes('Too Many Requests') ||
+    msg.includes('quota') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('503')
+  );
+}
+
+function isModelNotFoundError(err: any): boolean {
+  const msg = err?.message || '';
+  return msg.includes('404') || msg.includes('not found') || msg.includes('not supported');
+}
+
+/**
+ * Try a single model with retries
+ */
+async function tryWithRetries<T>(
+  modelName: string,
+  fn: () => Promise<T>,
+  maxRetries: number = 2,
+): Promise<T> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      if (isModelNotFoundError(err)) {
+        throw err; // Don't retry model-not-found
+      }
+      if (isRetryableError(err) && attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+        console.warn(`[Gemini] ${modelName} rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
+        await sleep(delay);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
 /**
  * Chat completion — drop-in replacement for z-ai-web-dev-sdk chat.completions.create()
  *
  * @param options.messages - Array of { role: 'system'|'user'|'assistant', content: string }
- * @param options.model - Gemini model name (default: gemini-2.0-flash)
+ * @param options.model - Gemini model name (auto-fallback if not specified)
  * @returns { content: string }
  */
 export async function chatCompletion(options: {
@@ -37,26 +99,22 @@ export async function chatCompletion(options: {
   temperature?: number;
   maxOutputTokens?: number;
 }): Promise<{ content: string }> {
-  const model = getGenAI().getGenerativeModel({
-    model: options.model || 'gemini-2.0-flash',
-    generationConfig: {
-      temperature: options.temperature ?? 0.7,
-      maxOutputTokens: options.maxOutputTokens ?? 8192,
-    },
-  });
+  const modelsToTry = options.model
+    ? [options.model]
+    : MODEL_FALLBACKS;
 
-  // Gemini uses 'system' instruction separately
-  const systemMessage = options.messages.find(m => m.role === 'system');
+  // Extract system messages (Gemini handles them separately)
+  const systemMessages = options.messages.filter(m => m.role === 'system');
   const conversationMessages = options.messages.filter(m => m.role !== 'system');
+  const combinedSystem = systemMessages.map(m => m.content).join('\n\n');
 
-  // Build prompt parts from conversation history
+  // Build history from conversation
   const history: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
   let lastUserMessage = '';
 
   for (const msg of conversationMessages) {
     if (msg.role === 'user') {
       lastUserMessage = msg.content;
-      // Only push to history if there was a previous exchange
       if (history.length > 0 || conversationMessages.indexOf(msg) > 0) {
         history.push({ role: 'user', parts: [{ text: msg.content }] });
       }
@@ -65,21 +123,41 @@ export async function chatCompletion(options: {
     }
   }
 
-  try {
-    const chat = model.startChat({
-      history,
-      ...(systemMessage ? { systemInstruction: systemMessage.content } : {}),
-    });
+  let lastError: any;
 
-    const result = await chat.sendMessage(lastUserMessage || 'Hello');
-    const response = result.response;
-    const content = response.text();
+  for (const modelName of modelsToTry) {
+    try {
+      const model = getGenAI().getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: options.temperature ?? 0.7,
+          maxOutputTokens: options.maxOutputTokens ?? 8192,
+        },
+      });
 
-    return { content };
-  } catch (err: any) {
-    console.error('[Gemini] chatCompletion error:', err.message || err);
-    throw err;
+      const result = await tryWithRetries(modelName, async () => {
+        const chat = model.startChat({
+          history,
+          ...(combinedSystem ? { systemInstruction: combinedSystem } : {}),
+        });
+        const response = await chat.sendMessage(lastUserMessage || 'Hello');
+        return response.text();
+      });
+
+      return { content: result };
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Gemini] Model ${modelName} failed: ${err.message?.substring(0, 100)}`);
+      // Continue to next model
+    }
   }
+
+  // All models failed
+  const errMsg = lastError?.message || 'Unknown error';
+  if (errMsg.includes('429') || errMsg.includes('quota')) {
+    throw new Error(`Gemini API quota exceeded. Free tier limit reached. Please wait a moment or upgrade your plan at https://ai.google.dev. Original: ${errMsg.substring(0, 200)}`);
+  }
+  throw lastError || new Error('All Gemini models failed');
 }
 
 /**
@@ -91,17 +169,36 @@ export async function generateText(options: {
   model?: string;
   temperature?: number;
 }): Promise<string> {
-  const model = getGenAI().getGenerativeModel({
-    model: options.model || 'gemini-2.0-flash',
-    generationConfig: {
-      temperature: options.temperature ?? 0.7,
-      maxOutputTokens: 8192,
-    },
-    ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
-  });
+  const modelsToTry = options.model
+    ? [options.model]
+    : MODEL_FALLBACKS;
 
-  const result = await model.generateContent(options.prompt);
-  return result.response.text();
+  let lastError: any;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = getGenAI().getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: options.temperature ?? 0.7,
+          maxOutputTokens: 8192,
+        },
+        ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
+      });
+
+      const result = await tryWithRetries(modelName, async () => {
+        const response = await model.generateContent(options.prompt);
+        return response.text();
+      });
+
+      return result;
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Gemini] Model ${modelName} failed: ${err.message?.substring(0, 100)}`);
+    }
+  }
+
+  throw lastError || new Error('All Gemini models failed');
 }
 
 /**

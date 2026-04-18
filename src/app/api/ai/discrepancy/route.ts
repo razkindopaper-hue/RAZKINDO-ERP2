@@ -435,12 +435,15 @@ FORMAT JAWABAN:
 
   try {
     const userMessage = `Analisa akar penyebab discrepancy berikut dan berikan diagnosis mendalam:\n\n${contextLines.join('\n')}`;
-    const result = await geminiChat(systemPrompt, [
-      { role: 'user', content: userMessage }
-    ]);
-    return result || 'Gagal menganalisis akar penyebab.';
+    const result = await chatCompletion({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+    });
+    return result.content || 'Gagal menganalisis akar penyebab.';
   } catch (err: any) {
-    console.error('Root cause LLM error:', err);
+    console.error('Root cause Gemini error:', err);
     return '⚠️ AI sedang tidak tersedia untuk analisis akar penyebab. Coba lagi nanti.';
   }
 }
