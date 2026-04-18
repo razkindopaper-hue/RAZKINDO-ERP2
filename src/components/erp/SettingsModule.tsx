@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -11,7 +11,6 @@ import {
   Building2,
   Printer,
   MessageSquare,
-  Database,
   Plus,
   Trash2,
   Edit,
@@ -26,10 +25,6 @@ import {
  FileText,
  MapPin,
   Phone,
-  Download,
-  UploadCloud,
- RefreshCw,
- ShieldCheck,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -39,10 +34,9 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingFallback } from '@/components/error-boundary';
 import WhatsAppSettingsTab from './WhatsAppSettingsTab';
 import { apiFetch } from '@/lib/api-client';
@@ -50,7 +44,7 @@ import { requestBLEPrinter, connectBLEPrinter, wrapReceiptWithESCPOS, writeBLECh
 import type { Unit } from '@/types';
 
 export default function SettingsModule() {
-  const { user, token } = useAuthStore();
+  const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const [activeSettingsTab, setActiveSettingsTab] = useState('general');
   
@@ -305,123 +299,7 @@ export default function SettingsModule() {
   });
   const allUnits = unitsData?.units || [];
   
-  // Reset system state
-  const [resetType, setResetType] = useState<'all' | 'transactions' | 'products' | 'users'>('transactions');
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  // Database management state
-  const [dbInfo, setDbInfo] = useState<any>(null);
-  const [dbInfoLoading, setDbInfoLoading] = useState(false);
-  const [backupLoading, setBackupLoading] = useState(false);
-  const [restoreLoading, setRestoreLoading] = useState(false);
-  const [restoreResult, setRestoreResult] = useState<{ success: boolean; message: string; warnings?: string } | null>(null);
-
-  // Fetch DB info
-  const fetchDbInfo = async () => {
-    setDbInfoLoading(true);
-    try {
-      const data = await apiFetch<{ info: any }>('/api/system/info');
-      if (data.info) {
-        setDbInfo(data.info);
-      }
-    } catch {
-      toast.error('Gagal mengambil info database');
-    } finally {
-      setDbInfoLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeSettingsTab === 'system' && !dbInfo) {
-      fetchDbInfo();
-    }
-  }, [activeSettingsTab]);
-
-  // Backup handler - uses raw fetch() because apiFetch always parses JSON,
-  // but backup endpoint returns a binary SQL file blob.
-  const handleBackup = async () => {
-    setBackupLoading(true);
-    try {
-      const res = await fetch('/api/system/backup', {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Gagal download backup' }));
-        throw new Error(err.error || 'Gagal download backup');
-      }
-      // Get filename from content-disposition
-      const disposition = res.headers.get('content-disposition') || '';
-      const match = disposition.match(/filename=(.+)/);
-      const filename = match ? match[1] : `razkindo-backup-${new Date().toISOString().slice(0,10)}.sql`;
-      // Download file
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success('Backup berhasil diunduh!');
-      // Refresh DB info
-      fetchDbInfo();
-    } catch (err: any) {
-      toast.error(err.message || 'Gagal membuat backup');
-    } finally {
-      setBackupLoading(false);
-    }
-  };
-
-  // Restore handler
-  const handleRestore = async () => {
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = '.sql';
-    fileInput.onchange = async (e: any) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      setRestoreLoading(true);
-      setRestoreResult(null);
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        const data = await apiFetch<{ success: boolean; message?: string; warnings?: string; error?: string }>('/api/system/restore', {
-          method: 'POST',
-          body: formData,
-        });
-        if (data.success) {
-          toast.success(data.message || 'Database berhasil di-restore!');
-          setRestoreResult({ success: true, message: data.message || 'Database berhasil di-restore', warnings: data.warnings });
-          fetchDbInfo();
-          queryClient.invalidateQueries();
-        } else {
-          throw new Error(data.error || 'Gagal restore');
-        }
-      } catch (err: any) {
-        toast.error(err.message || 'Gagal restore database');
-      } finally {
-        setRestoreLoading(false);
-      }
-    };
-    fileInput.click();
-  };
-  
-  const resetMutation = useMutation({
-    mutationFn: () => apiFetch<{ success: boolean }>('/api/system/reset', {
-      method: 'POST',
-      body: JSON.stringify({ type: resetType })
-    }),
-    onSuccess: () => {
-      toast.success('Sistem berhasil direset');
-      queryClient.invalidateQueries();
-      setShowResetConfirm(false);
-    },
-    onError: (err: any) => toast.error('Gagal reset: ' + err.message),
-  });
-  
   if (settingsLoading) {
     return <LoadingFallback message="Memuat pengaturan..." />;
   }
@@ -448,9 +326,6 @@ export default function SettingsModule() {
               <SelectItem value="whatsapp">
                 <span className="inline-flex items-center gap-2"><MessageSquare className="w-4 h-4" /><span>WhatsApp</span></span>
               </SelectItem>
-              <SelectItem value="system">
-                <span className="inline-flex items-center gap-2"><Database className="w-4 h-4" /><span>Sistem</span></span>
-              </SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -461,7 +336,6 @@ export default function SettingsModule() {
           <TabsTrigger value="units" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Building2 className="w-3 h-3 sm:w-4 sm:h-4" />Unit</TabsTrigger>
           <TabsTrigger value="printer" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Printer className="w-3 h-3 sm:w-4 sm:h-4" />Printer</TabsTrigger>
           <TabsTrigger value="whatsapp" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><MessageSquare className="w-3 h-3 sm:w-4 sm:h-4" />WA</TabsTrigger>
-          <TabsTrigger value="system" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Database className="w-3 h-3 sm:w-4 sm:h-4" />Sistem</TabsTrigger>
         </TabsList>
         
         {/* ===== TAB: UMUM ===== */}
@@ -822,279 +696,6 @@ Kembali                0
               </Button>
             </CardFooter>
           </Card>
-        </TabsContent>
-        
-        {/* ===== TAB: SISTEM ===== */}
-        <TabsContent value="system" className="space-y-4">
-          {/* Database Statistics */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="min-w-0">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Database className="w-4 h-4" />
-                    Statistik Database
-                  </CardTitle>
-                  <CardDescription className="mt-1">Informasi database dan jumlah record</CardDescription>
-                </div>
-                <Button variant="outline" size="sm" className="shrink-0" onClick={fetchDbInfo} disabled={dbInfoLoading}>
-                  <RefreshCw className={cn("w-3 h-3 mr-1", dbInfoLoading && "animate-spin")} />
-                  Refresh
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {dbInfoLoading && !dbInfo ? (
-                <div className="flex items-center justify-center py-8 text-muted-foreground">
-                  <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-                  Memuat...
-                </div>
-              ) : dbInfo ? (
-                <div className="space-y-3">
-                  {/* Summary Row */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-lg bg-muted/50 text-center">
-                      <p className="text-xs text-muted-foreground">Ukuran DB</p>
-                      <p className="font-semibold text-sm">
-                        {dbInfo.dbFileSize ? (dbInfo.dbFileSize / (1024 * 1024)).toFixed(2) + ' MB' : '-'}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 text-center">
-                      <p className="text-xs text-muted-foreground">Total Penjualan</p>
-                      <p className="font-semibold text-sm text-emerald-600 dark:text-emerald-400">
-                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dbInfo.summaries?.totalSales || 0)}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 text-center">
-                      <p className="text-xs text-muted-foreground">Total Profit</p>
-                      <p className="font-semibold text-sm text-blue-600 dark:text-blue-400">
-                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dbInfo.summaries?.totalProfit || 0)}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20 text-center">
-                      <p className="text-xs text-muted-foreground">Piutang</p>
-                      <p className="font-semibold text-sm text-orange-600 dark:text-orange-400">
-                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dbInfo.summaries?.totalReceivables || 0)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* Table Counts */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-2">
-                    {[
-                      { label: 'Pengguna', value: dbInfo.tables?.users },
-                      { label: 'Unit', value: dbInfo.tables?.units },
-                      { label: 'Produk', value: dbInfo.tables?.products },
-                      { label: 'Pelanggan', value: dbInfo.tables?.customers },
-                      { label: 'Supplier', value: dbInfo.tables?.suppliers },
-                      { label: 'Transaksi', value: dbInfo.tables?.transactions },
-                      { label: 'Item Transaksi', value: dbInfo.tables?.transactionItems },
-                      { label: 'Pembayaran', value: dbInfo.tables?.payments },
-                      { label: 'Gaji', value: dbInfo.tables?.salaryPayments },
-                      { label: 'Transfer Dana', value: dbInfo.tables?.fundTransfers },
-                      { label: 'Hutang', value: dbInfo.tables?.companyDebts },
-                      { label: 'Piutang', value: dbInfo.tables?.receivables },
-                      { label: 'Pengiriman', value: dbInfo.tables?.courierHandovers },
-                      { label: 'Events', value: dbInfo.tables?.events },
-                      { label: 'Logs', value: dbInfo.tables?.logs },
-                    ]
-                      .filter(item => item.value !== undefined)
-                      .map(item => (
-                        <div key={item.label} className="flex items-center justify-between py-1">
-                          <span className="text-xs text-muted-foreground">{item.label}</span>
-                          <Badge variant="secondary" className="text-xs font-mono">{(item.value as number).toLocaleString('id-ID')}</Badge>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-center text-sm text-muted-foreground py-4">Gagal memuat info database</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Backup & Restore */}
-          {user?.role === 'super_admin' && (
-            <>
-              {/* Backup Card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Download className="w-4 h-4 text-emerald-500" />
-                    Backup Database
-                  </CardTitle>
-                  <CardDescription>
-                    Unduh seluruh data dalam format SQL. Gunakan sebelum update atau perubahan besar.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-sm">Download Backup SQL</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {dbInfo?.lastBackupDate
-                          ? `Backup terakhir: ${new Date(dbInfo.lastBackupDate).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}`
-                          : 'Belum pernah backup'
-                        }
-                        {dbInfo?.backupCount ? ` • ${dbInfo.backupCount} file backup tersimpan` : ''}
-                      </p>
-                    </div>
-                    <Button
-                      onClick={handleBackup}
-                      disabled={backupLoading}
-                      className="w-full sm:w-auto shrink-0"
-                    >
-                      {backupLoading ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Membuat Backup...
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-4 h-4 mr-2" />
-                          Backup Sekarang
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>💡 <strong>Tips:</strong></p>
-                    <ul className="list-disc list-inside space-y-0.5 ml-1">
-                      <li>Backup sebelum melakukan update aplikasi atau perubahan schema</li>
-                      <li>Simpan file backup di tempat yang aman (Google Drive, dll)</li>
-                      <li>File backup berisi seluruh data: transaksi, produk, pengguna, pengaturan</li>
-                    </ul>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Restore Card */}
-              <Card className="border-amber-500/30">
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <UploadCloud className="w-4 h-4 text-amber-500" />
-                    Restore Database
-                  </CardTitle>
-                  <CardDescription>
-                    Kembalikan database dari file backup SQL yang sebelumnya diunduh.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Alert className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/10">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <AlertDescription className="text-amber-700 dark:text-amber-400">
-                      <strong>Perhatian!</strong> Restore akan menimpa semua data saat ini. Pastikan Anda sudah backup sebelum melanjutkan. Sistem akan otomatis membuat safety backup sebelum restore.
-                    </AlertDescription>
-                  </Alert>
-
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border rounded-lg bg-amber-50/30 dark:bg-amber-950/10">
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm">Upload File Backup (.sql)</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">File harus berformat .sql dari backup sebelumnya</p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={handleRestore}
-                      disabled={restoreLoading}
-                      className="w-full sm:w-auto shrink-0 border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:text-amber-400"
-                    >
-                      {restoreLoading ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Memulihkan...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Pilih File & Restore
-                        </>
-                      )}
-                    </Button>
-                  </div>
-
-                  {/* Restore Result */}
-                  {restoreResult && (
-                    <Alert className={restoreResult.success ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/10' : 'border-red-500/50 bg-red-50/50 dark:bg-red-950/10'}>
-                      <ShieldCheck className="h-4 w-4" />
-                      <AlertDescription>
-                        <p className={restoreResult.success ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}>
-                          {restoreResult.message}
-                        </p>
-                        {restoreResult.warnings && (
-                          <pre className="mt-2 text-xs p-2 rounded bg-muted/50 overflow-x-auto max-h-32">
-                            {restoreResult.warnings}
-                          </pre>
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>📋 <strong>Cara Restore:</strong></p>
-                    <ol className="list-decimal list-inside space-y-0.5 ml-1">
-                      <li>Klik &quot;Pilih File & Restore&quot; dan pilih file .sql dari backup sebelumnya</li>
-                      <li>Sistem otomatis membuat safety backup dari database saat ini</li>
-                      <li>Data akan ditimpa dengan data dari file backup</li>
-                      <li>Jika gagal, safety backup akan dikembalikan otomatis</li>
-                    </ol>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
-          )}
-          
-          {user?.role === 'super_admin' && (
-            <Card className="border-red-500/50">
-              <CardHeader>
-                <CardTitle className="text-base text-red-500 flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4" />
-                  Zona Berbahaya
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-medium">Reset Sistem</p>
-                    <p className="text-sm text-muted-foreground break-words">Hapus data sesuai pilihan</p>
-                  </div>
-                  <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-                    <DialogTrigger asChild>
-                      <Button variant="destructive" size="sm" className="w-full sm:w-auto shrink-0">Reset</Button>
-                    </DialogTrigger>
-                    <DialogContent className="w-[calc(100vw-2rem)] max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Konfirmasi Reset</DialogTitle>
-                        <DialogDescription>Tindakan ini tidak dapat dibatalkan.</DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <Select value={resetType} onValueChange={v => setResetType(v as typeof resetType)}>
-                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="transactions">Transaksi Saja</SelectItem>
-                            <SelectItem value="products">Produk Saja</SelectItem>
-                            <SelectItem value="users">User Non-Admin</SelectItem>
-                            <SelectItem value="all">Semua Data</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Alert variant="destructive">
-                          <AlertTriangle className="h-4 w-4" />
-                          <AlertDescription>Akan menghapus: <strong>{resetType}</strong></AlertDescription>
-                        </Alert>
-                      </div>
-                      <DialogFooter className="flex-col sm:flex-row gap-2">
-                        <Button variant="outline" className="w-full sm:w-auto" onClick={() => setShowResetConfirm(false)}>Batal</Button>
-                        <Button variant="destructive" className="w-full sm:w-auto" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending}>
-                          {resetMutation.isPending ? 'Menghapus...' : 'Ya, Reset'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
       </Tabs>
     </div>

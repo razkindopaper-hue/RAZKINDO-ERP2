@@ -813,21 +813,5 @@ export const api = {
       }),
   },
 
-  // ============ SYSTEM ============
-  system: {
-    reset: (type: 'all' | 'transactions' | 'products' | 'users') =>
-      apiFetch<{ success: boolean }>('/api/system/reset', {
-        method: 'POST',
-        body: JSON.stringify({ type }),
-      }),
 
-    getInfo: () =>
-      apiFetch<{ info: any }>('/api/system/info'),
-
-    restore: (data: FormData) =>
-      apiFetch<{ success: boolean }>('/api/system/restore', {
-        method: 'POST',
-        body: data,
-      }),
-  },
 };
