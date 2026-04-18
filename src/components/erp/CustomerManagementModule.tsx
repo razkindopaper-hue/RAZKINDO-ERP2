@@ -677,6 +677,39 @@ export default function CustomerManagementModule() {
     }
   };
 
+  // Share customer info via Web Share API (PWA) or clipboard fallback
+  const handleShareCustomer = async (customer: typeof customers[0]) => {
+    const lines: string[] = [];
+    lines.push(`Pelanggan: ${customer.name}`);
+    if (customer.phone) lines.push(`Telepon: ${customer.phone}`);
+    if (customer.email) lines.push(`Email: ${customer.email}`);
+    if (customer.address) lines.push(`Alamat: ${customer.address}`);
+    if (customer.code) {
+      lines.push(`Link Member: ${window.location.origin}/c/${customer.code}`);
+    }
+    const shareText = lines.join('\n');
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: `Info Pelanggan - ${customer.name}`,
+          text: shareText,
+        });
+        return;
+      } catch (err: any) {
+        // User cancelled or share failed — fall through to clipboard
+        if (err.name === 'AbortError') return;
+      }
+    }
+    // Fallback: copy to clipboard
+    try {
+      await navigator.clipboard.writeText(shareText);
+      toast.success('Info pelanggan berhasil disalin ke clipboard!');
+    } catch {
+      toast.error('Gagal membagikan info pelanggan');
+    }
+  };
+
   // ========== LOADING STATE ==========
   // Show loading only if both queries are loading (first load for summary)
   const isInitialLoading = customersLoading && (activeTab === 'pelanggan');
@@ -882,6 +915,15 @@ export default function CustomerManagementModule() {
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600" onClick={() => { setFollowUpCustomer(c); setFollowUpForm({ type: 'whatsapp', note: '', outcome: '' }); }}>
                         <PhoneCall className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-blue-500 hover:text-blue-600"
+                        title="Bagikan info pelanggan"
+                        onClick={() => handleShareCustomer(c)}
+                      >
+                        <Share2 className="w-3 h-3" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingCustomer(c)}>
                         <Edit className="w-3 h-3" />
