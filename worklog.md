@@ -49,3 +49,20 @@ Stage Summary:
 - Sales target table accessible via Supabase REST API (was broken due to PascalCase table name)
 - Sales target CRUD operations verified working
 - Pool dana selisih = 0 (total pool = total fisik)
+---
+Task ID: 1
+Agent: main
+Task: Create Docker deployment files for CasaOS installation
+
+Work Log:
+- Analyzed project structure: Next.js 16 standalone + event-queue mini-service on port 3004
+- Created .dockerignore to exclude dev files, logs, uploads
+- Created multi-stage Dockerfile (deps → builder → runner) with esbuild for TS compilation
+- Created docker-entrypoint.sh to start event-queue + Next.js
+- Created docker-compose.yml with CasaOS labels and all env vars documented
+
+Stage Summary:
+- Dockerfile: 3-stage build (node:22-alpine), compiles event-queue TS→JS via esbuild
+- docker-compose.yml: exposes port 8180→3000, internal 3004 for event-queue
+- All env vars documented with placeholders for user to fill in
+- CasaOS metadata labels included for App Store integration
