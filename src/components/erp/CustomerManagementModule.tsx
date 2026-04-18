@@ -425,11 +425,10 @@ const viewOptions = [
 const followUpOutcomes = [
   { value: 'interested', label: 'Tertarik' },
   { value: 'not_interested', label: 'Tidak Tertarik' },
-  { value: 'will_order', label: 'Akan Order' },
-  { value: 'follow_up_again', label: 'Follow Up Lagi' },
-  { value: 'unreachable', label: 'Tidak Dapat Dihubungi' },
-  { value: 'wrong_number', label: 'Nomor Salah' },
-  { value: 'lost', label: 'Lost' },
+  { value: 'promised_to_order', label: 'Janji Akan Order' },
+  { value: 'no_response', label: 'Tidak Ada Respons' },
+  { value: 'rescheduled', label: 'Dijadwalkan Ulang' },
+  { value: 'other', label: 'Lainnya' },
 ] as const;
 
 // ============ MAIN COMPONENT ============
@@ -649,6 +648,10 @@ export default function CustomerManagementModule() {
     if (!followUpCustomer) return;
     if (!followUpForm.outcome) {
       toast.error('Pilih hasil follow up');
+      return;
+    }
+    if (!followUpForm.note.trim()) {
+      toast.error('Catatan follow up wajib diisi');
       return;
     }
     setFollowUpLoading(true);
@@ -1087,7 +1090,7 @@ export default function CustomerManagementModule() {
                             <span className="font-medium text-sm">{a.createdBy.name}</span>
                             <Badge variant="outline" className="text-xs">{a.type}</Badge>
                             {a.outcome && (
-                              <Badge variant="secondary" className="text-xs">{a.outcome.replace(/_/g, ' ')}</Badge>
+                              <Badge variant="secondary" className="text-xs">{followUpOutcomes.find(o => o.value === a.outcome)?.label || a.outcome.replace(/_/g, ' ')}</Badge>
                             )}
                           </div>
                           <p className="text-sm mt-1">{a.note}</p>
@@ -1238,7 +1241,7 @@ export default function CustomerManagementModule() {
                             <span className="font-medium text-sm">{fu.createdBy.name}</span>
                             <Badge variant="outline" className="text-xs">{fu.type}</Badge>
                             {fu.outcome && (
-                              <Badge variant="secondary" className="text-xs">{fu.outcome.replace(/_/g, ' ')}</Badge>
+                              <Badge variant="secondary" className="text-xs">{followUpOutcomes.find(o => o.value === fu.outcome)?.label || fu.outcome.replace(/_/g, ' ')}</Badge>
                             )}
                           </div>
                           <p className="text-sm mt-1">{fu.note}</p>
@@ -1392,7 +1395,7 @@ export default function CustomerManagementModule() {
           <DrawerFooter className="border-t">
             <Button
               onClick={handleFollowUpSubmit}
-              disabled={followUpLoading || !followUpForm.outcome}
+              disabled={followUpLoading || !followUpForm.outcome || !followUpForm.note.trim()}
               className="w-full"
             >
               {followUpLoading ? (

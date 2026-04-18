@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
+import { apiFetch } from '@/lib/api-client';
 
 export type PushPermissionState = 'prompt' | 'granted' | 'denied' | 'unsupported' | 'loading';
 
@@ -57,20 +58,11 @@ export function usePushNotification(): UsePushNotificationReturn {
 
       // Check server-side status
       try {
-        const res = await fetch('/api/push/status', {
-          headers: {
-            'x-notification-permission': currentPermission,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setIsConfigured(data.configured);
-          setIsSubscribed(data.subscribed);
-          setDeviceCount(data.subscriptionCount || 0);
-          setPermission(currentPermission as PushPermissionState);
-        } else {
-          setPermission(currentPermission === 'granted' ? 'granted' : 'prompt');
-        }
+        const data = await apiFetch<{ configured: boolean; subscribed: boolean; subscriptionCount: number; vapidPublicKey: string | null }>('/api/push/status');
+        setIsConfigured(data.configured);
+        setIsSubscribed(data.subscribed);
+        setDeviceCount(data.subscriptionCount || 0);
+        setPermission(currentPermission as PushPermissionState);
       } catch {
         // If server check fails, just use browser permission state
         setPermission(currentPermission === 'granted' ? 'granted' : 'prompt');
@@ -87,7 +79,9 @@ export function usePushNotification(): UsePushNotificationReturn {
 
   // Also re-check when tab becomes visible (permission may have changed)
   useEffect(() => {
-    const handler = () => checkStatus();
+    const handler = () => {
+      if (document.visibilityState === 'visible') checkStatus();
+    };
     document.addEventListener('visibilitychange', handler);
     return () => document.removeEventListener('visibilitychange', handler);
   }, [checkStatus]);
@@ -143,9 +137,8 @@ export function usePushNotification(): UsePushNotificationReturn {
       const subJSON = subscription.toJSON();
 
       // Send subscription to server
-      const res = await fetch('/api/push/subscribe', {
+      const res = await apiFetch<{ success: boolean }>('/api/push/subscribe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           endpoint: subscription.endpoint,
           keys: subJSON.keys,
@@ -157,10 +150,8 @@ export function usePushNotification(): UsePushNotificationReturn {
         }),
       });
 
-      if (res.ok) {
-        setIsSubscribed(true);
-        setDeviceCount((prev) => prev + 1);
-      }
+      setIsSubscribed(true);
+      setDeviceCount((prev) => prev + 1);
     } catch (err) {
       console.error('[Push] Subscribe failed:', err);
       // If subscription fails (e.g., existing subscription), try clearing and retry
@@ -184,9 +175,8 @@ export function usePushNotification(): UsePushNotificationReturn {
 
       if (subscription) {
         // Tell server to remove subscription
-        await fetch('/api/push/unsubscribe', {
+        await apiFetch('/api/push/unsubscribe', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: subscription.endpoint }),
         });
 
@@ -195,7 +185,13 @@ export function usePushNotification(): UsePushNotificationReturn {
       }
 
       setIsSubscribed(false);
-      setDeviceCount(0);
+      // Re-fetch device count from server instead of guessing
+      try {
+        const data = await apiFetch<{ configured: boolean; subscribed: boolean; subscriptionCount: number }>('/api/push/status');
+        setDeviceCount(data.subscriptionCount || 0);
+      } catch {
+        setDeviceCount(0);
+      }
     } catch (err) {
       console.error('[Push] Unsubscribe failed:', err);
     }

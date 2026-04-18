@@ -25,6 +25,7 @@ import {
  FileText,
  MapPin,
   Phone,
+  Activity,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +40,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingFallback } from '@/components/error-boundary';
 import WhatsAppSettingsTab from './WhatsAppSettingsTab';
+import MonitoringTab from './MonitoringTab';
 import { apiFetch } from '@/lib/api-client';
 import { requestBLEPrinter, connectBLEPrinter, wrapReceiptWithESCPOS, writeBLEChunks } from '@/lib/generate-invoice-pdf';
 import type { Unit } from '@/types';
@@ -326,6 +328,9 @@ export default function SettingsModule() {
               <SelectItem value="whatsapp">
                 <span className="inline-flex items-center gap-2"><MessageSquare className="w-4 h-4" /><span>WhatsApp</span></span>
               </SelectItem>
+              {user?.role === 'super_admin' && <SelectItem value="monitoring">
+                <span className="inline-flex items-center gap-2"><Activity className="w-4 h-4" /><span>Monitoring</span></span>
+              </SelectItem>}
             </SelectContent>
           </Select>
         </div>
@@ -336,6 +341,7 @@ export default function SettingsModule() {
           <TabsTrigger value="units" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Building2 className="w-3 h-3 sm:w-4 sm:h-4" />Unit</TabsTrigger>
           <TabsTrigger value="printer" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Printer className="w-3 h-3 sm:w-4 sm:h-4" />Printer</TabsTrigger>
           <TabsTrigger value="whatsapp" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><MessageSquare className="w-3 h-3 sm:w-4 sm:h-4" />WA</TabsTrigger>
+          {user?.role === 'super_admin' && <TabsTrigger value="monitoring" className="shrink-0 whitespace-nowrap text-xs sm:text-sm gap-1"><Activity className="w-3 h-3 sm:w-4 sm:h-4" />Monitoring</TabsTrigger>}
         </TabsList>
         
         {/* ===== TAB: UMUM ===== */}
@@ -526,6 +532,11 @@ export default function SettingsModule() {
         {/* ===== TAB: WHATSAPP ===== */}
         <TabsContent value="whatsapp" className="space-y-4">
           <WhatsAppSettingsTab />
+        </TabsContent>
+
+        {/* ===== TAB: MONITORING ===== */}
+        <TabsContent value="monitoring" className="space-y-4">
+          <MonitoringTab />
         </TabsContent>
 
         {/* ===== TAB: PRINTER ===== */}
