@@ -99,23 +99,27 @@ self.addEventListener('notificationclose', (event) => {
   // For now, no action needed
 });
 
-// Handle push subscription change
+// Handle push subscription change (deprecated event, polyfill with periodic check)
+// Modern browsers handle subscription renewal automatically
 self.addEventListener('pushsubscriptionchange', (event) => {
-  // When subscription changes (e.g., renewal), notify the app
+  console.log('[SW] Push subscription changed, re-subscribing...');
   event.waitUntil(
     self.registration.pushManager.subscribe(event.oldSubscription.options)
       .then((newSubscription) => {
-        // Forward the new subscription to the server
-        return fetch('/api/push/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            endpoint: newSubscription.endpoint,
-            keys: {
-              p256dh: newSubscription.toJSON().keys.p256dh,
-              auth: newSubscription.toJSON().keys.auth,
-            },
-          }),
+        const subJSON = newSubscription.toJSON();
+        // Try to get auth token from clients
+        return self.clients.matchAll({ type: 'window' }).then(clients => {
+          if (clients.length > 0) {
+            return clients[0];
+          }
+          return null;
+        }).then(client => {
+          if (!client) {
+            console.warn('[SW] No client available for push resubscription');
+            return;
+          }
+          // Ask the client page to re-subscribe (it has the auth token)
+          client.postMessage({ type: 'PUSH_RESUBSCRIBE' });
         });
       })
       .catch((err) => {
