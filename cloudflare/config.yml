@@ -1,0 +1,33 @@
+# =====================================================================
+# Cloudflare Tunnel Configuration for Razkindo2 ERP
+# =====================================================================
+#
+# SETUP:
+#   1. Install cloudflared: brew install cloudflared
+#   2. Login: cloudflared tunnel login
+#   3. Create tunnel: cloudflared tunnel create razkindo-erp
+#   4. Copy tunnel ID from output, paste below
+#   5. Update DNS: cloudflared tunnel route dns <TUNNEL_ID> razkindo.yourdomain.com
+#   6. Run: cloudflared tunnel run
+#
+# OR for quick testing (no domain needed):
+#   cloudflared tunnel --url http://localhost:8180
+#
+# =====================================================================
+
+tunnel: <YOUR_TUNNEL_ID>
+credentials-file: /Users/mac/.cloudflared/<YOUR_TUNNEL_ID>.json
+
+# Ingress rules — route traffic to correct services
+ingress:
+  # WebSocket connections → Caddy gateway (which routes to event-queue:3004)
+  - hostname: "*"
+    path: "^/socket\\.io/.*"
+    service: http://localhost:81
+
+  # All other traffic → Caddy gateway (which routes to Next.js:3000)
+  - hostname: "*"
+    service: http://localhost:81
+
+  # Catch-all (required)
+  - service: http_status:404
