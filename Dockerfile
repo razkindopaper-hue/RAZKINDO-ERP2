@@ -43,13 +43,13 @@ RUN npx prisma generate
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Compile event-queue TypeScript → JavaScript (esbuild supports arm64)
-RUN npm install -g esbuild && \
-    cd /app/mini-services/event-queue && \
-    esbuild index.ts --bundle --platform=node --outfile=index.js --format=cjs --packages=external
+# Compile event-queue TypeScript → JavaScript
+# Use npx esbuild (already in node_modules from Next.js) — avoids npm global install ETXTBSY bug on Alpine ARM64
+RUN cd /app/mini-services/event-queue && \
+    npx esbuild index.ts --bundle --platform=node --outfile=index.js --format=cjs --packages=external
 
 # Compile proxy-server (ESM → CJS for Node.js 22 compatibility)
-RUN cd /app && esbuild proxy-server.mjs --bundle --platform=node --outfile=proxy-server.cjs --format=cjs --packages=external
+RUN cd /app && npx esbuild proxy-server.mjs --bundle --platform=node --outfile=proxy-server.cjs --format=cjs --packages=external
 
 # ---- Stage 3: Runner ----
 FROM node:22-alpine AS runner
