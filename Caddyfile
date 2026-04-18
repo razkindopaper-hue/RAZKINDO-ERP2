@@ -1,9 +1,7 @@
 :81 {
-        # Socket.io engine.io polling → event-queue on port 3004
-        @engineio {
-                query EIO=*
-        }
-        handle @engineio {
+        # Socket.io / WebSocket connections → event-queue on port 3004
+        @socketio path /socket.io/*
+        handle @socketio {
                 reverse_proxy localhost:3004 {
                         header_up Host {host}
                         header_up X-Forwarded-For {remote_host}
@@ -26,7 +24,7 @@
                 }
         }
 
-        # Legacy: XTransformPort query-based routing (for backward compat)
+        # Legacy: XTransformPort query-based routing (backward compat)
         @transform_port_query {
                 query XTransformPort=*
         }

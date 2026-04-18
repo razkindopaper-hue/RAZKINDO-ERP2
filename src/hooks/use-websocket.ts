@@ -35,8 +35,14 @@ let _refCount = 0;
 function getOrCreateSocket(): Socket {
   if (_socket) return _socket;
 
-  _socket = io('/', {
-    path: '/',
+  // Auto-detect WebSocket URL based on environment
+  // - Local dev: same origin (Caddy routes WebSocket to port 3004)
+  // - Cloudflare tunnel: same origin (cloudflared routes /socket.io to port 8181)
+  // - Direct Docker: same origin (need to configure reverse proxy)
+  const wsUrl = typeof window !== 'undefined' ? window.location.origin : '/';
+
+  _socket = io(wsUrl, {
+    path: '/socket.io',
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 20,
@@ -44,6 +50,7 @@ function getOrCreateSocket(): Socket {
     reconnectionDelayMax: 10000,
     timeout: 20000,
     autoConnect: true,
+    secure: typeof window !== 'undefined' && window.location.protocol === 'https:',
   });
 
   // Global connection logging — re-auth on reconnect

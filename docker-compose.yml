@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     ports:
       - "8180:3000"   # Next.js web app (external:internal)
-      # Port 3004 (event-queue) is internal only
+      - "8181:3004"   # Event Queue / WebSocket (for Cloudflare tunnel)
     env_file:
       - .env
     environment:

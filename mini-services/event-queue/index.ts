@@ -997,7 +997,7 @@ function handleBulkEnqueue(events: unknown[], res: ServerResponse): void {
 const httpServer = createServer();
 
 const io = new Server(httpServer, {
-  path: '/',
+  path: '/socket.io',
   pingTimeout: 60000,
   pingInterval: 25000,
   cors: {
