@@ -882,7 +882,7 @@ export default function AIChatPanel() {
               const pvp = d.poolVsPhysical;
               reply += '⚠️ **Pool vs Dana Fisik:**\n';
               reply += `• Total Pool: **${formatCurrency(pvp.totalPool)}**\n`;
-              reply += `• Bank: ${formatCurrency(pvp.totalBank)} + Brankas: ${formatCurrency(pvp.totalCashBox)} + Kurir: ${formatCurrency(pvp.totalCourier)} = **${formatCurrency(pvp.totalPhysical)}**\n`;
+              reply += `• Bank: ${formatCurrency(pvp.totalBank)} + Brankas: ${formatCurrency(pvp.totalCashBox)} = **${formatCurrency(pvp.totalPhysical)}**${pvp.totalCourier > 0 ? ` (Kurir belum pool: ${formatCurrency(pvp.totalCourier)})` : ''}\n`;
               reply += `• Selisih: **${formatCurrency(Math.abs(pvp.poolPhysicalDiff))}**\n\n`;
             }
             if (summary.inconsistencyCount > 0) {

@@ -71,7 +71,8 @@ async function analyzeDiscrepancies() {
   const profitDiff = profitPaidBalance - actualProfitSum;
 
   // NOTE: We compute poolVsPhysical FIRST because poolVsRpc.hasDiscrepancy depends on it.
-  // Pool vs Physical (Bank + Brankas + Kurir) — PRIMARY discrepancy check
+  // Pool vs Physical (Bank + Brankas) — PRIMARY discrepancy check
+  // Dana kurir TIDAK termasuk karena belum disetor ke rekening/brankas
   const [bankResult, cashBoxResult, courierResult] = await Promise.all([
     db.from('bank_accounts').select('balance').eq('is_active', true),
     db.from('cash_boxes').select('balance').eq('is_active', true),
@@ -81,7 +82,7 @@ async function analyzeDiscrepancies() {
   const totalBank = (bankResult.data || []).reduce((s: number, b: any) => s + (Number(b.balance) || 0), 0);
   const totalCashBox = (cashBoxResult.data || []).reduce((s: number, c: any) => s + (Number(c.balance) || 0), 0);
   const totalCourier = (courierResult.data || []).reduce((s: number, c: any) => s + (Number(c.balance) || 0), 0);
-  const totalPhysical = totalBank + totalCashBox + totalCourier;
+  const totalPhysical = totalBank + totalCashBox; // TANPA kurir
   const poolPhysicalDiff = totalPool - totalPhysical;
   const poolPhysicalHasDiscrepancy = Math.abs(poolPhysicalDiff) > 1;
 
@@ -367,7 +368,7 @@ async function findRootCause(discrepancyData: any) {
     contextLines.push('--- POOL vs DANA FISIK (CHECK UTAMA) ---');
     contextLines.push(`Total Pool: ${rp(pvp.totalPool)}`);
     contextLines.push(`Bank: ${rp(pvp.totalBank)}, Brankas: ${rp(pvp.totalCashBox)}, Kurir: ${rp(pvp.totalCourier)}`);
-    contextLines.push(`Total Fisik: ${rp(pvp.totalPhysical)} (Selisih: ${rp(pvp.poolPhysicalDiff)})`);
+    contextLines.push(`Total Fisik (brankas+bank, tanpa kurir): ${rp(pvp.totalPhysical)} (Selisih: ${rp(pvp.poolPhysicalDiff)})${pvp.totalCourier > 0 ? ` | Kurir (belum pool): ${rp(pvp.totalCourier)}` : ''}`);
     contextLines.push('');
   }
 

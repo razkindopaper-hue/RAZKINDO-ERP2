@@ -339,9 +339,8 @@ export async function GET(request: NextRequest) {
 // PUT /api/finance/pools
 //
 // Manually update pool balances (settings IS the authority).
-// After saving, selisih = 0 by design because totalPhysical includes courier cash
-// and the composition is calculated to equal totalPhysical.
-// Safety check: total pool cannot exceed total physical.
+// totalPhysical = brankas + bank (TANPA kurir, karena dana kurir belum disetor).
+// Safety check: total pool cannot exceed total physical (brankas+bank).
 // ============================================
 export async function PUT(request: NextRequest) {
   try {
@@ -482,7 +481,8 @@ async function computeSyncPreview() {
   const rpc = await fetchPoolSumsFromPrisma();
 
   // 3. Courier pending amounts (money with couriers, not yet in brankas)
-  //    These MUST be included in pool composition so that totalPool = totalPhysical (no selisih)
+  //    Dana kurir TIDAK termasuk dalam pool karena belum disetor ke rekening/brankas.
+  //    Informasi ini hanya untuk referensi/pemberitahuan.
   const courierSums = await fetchCourierCashSums();
 
   // 4. Suggested values = RPC (money already in brankas/bank via handover)
@@ -586,7 +586,7 @@ export async function POST(request: NextRequest) {
       const syncPreview = await computeSyncPreview();
       return NextResponse.json({
         ...syncPreview,
-        _info: 'Nilai "suggested" adalah hasil perhitungan dari data pembayaran + setoran kurir + dana kurir yang belum disetor. Sinkronisasi akan membuat selisih = 0.',
+        _info: 'Nilai "suggested" adalah hasil perhitungan dari data pembayaran + setoran kurir yang sudah masuk brankas/bank. Dana kurir yang belum disetor TIDAK termasuk dalam pool.',
       });
     }
 
@@ -611,7 +611,7 @@ export async function POST(request: NextRequest) {
           entity: 'settings',
           entityId: 'pool_hpp_paid_balance',
           userId: auth.userId,
-          message: `Pool dana disinkronkan (termasuk dana kurir): HPP=${newHpp.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentHpp.toLocaleString('id-ID')}), Profit=${newProfit.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentProfit.toLocaleString('id-ID')}), Dana Lain-lain=${investorFund.toLocaleString('id-ID')}, Total=${totalPool.toLocaleString('id-ID')}`
+          message: `Pool dana disinkronkan (brankas+bank, tanpa kurir): HPP=${newHpp.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentHpp.toLocaleString('id-ID')}), Profit=${newProfit.toLocaleString('id-ID')} (sebelumnya ${syncPreview.currentProfit.toLocaleString('id-ID')}), Dana Lain-lain=${investorFund.toLocaleString('id-ID')}, Total=${totalPool.toLocaleString('id-ID')}`
         });
       } catch { /* ignore */ }
 
@@ -622,7 +622,7 @@ export async function POST(request: NextRequest) {
         totalPool,
         changes: syncPreview.changes,
         warnings: syncPreview.warnings,
-        message: `Pool dana berhasil disinkronkan. HPP: ${newHpp.toLocaleString('id-ID')}, Profit: ${newProfit.toLocaleString('id-ID')}. Selisih = 0.`,
+        message: `Pool dana berhasil disinkronkan (brankas+bank). HPP: ${newHpp.toLocaleString('id-ID')}, Profit: ${newProfit.toLocaleString('id-ID')}. Dana kurir tidak termasuk dalam pool.`,
       });
     }
 
