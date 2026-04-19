@@ -202,7 +202,7 @@ async function analyzeDiscrepancies() {
       const txRemainingMap = new Map((receivableTxs || []).map((t: any) => [t.id, Number(t.remaining_amount) || 0]));
 
       for (const r of receivables) {
-        const txRemaining = txRemainingMap.get(r.transaction_id);
+        const txRemaining: number = txRemainingMap.get(r.transaction_id) || 0;
         const receivableRemaining = Number(r.remaining_amount) || 0;
         if (txRemaining !== undefined && Math.abs(txRemaining - receivableRemaining) > 1) {
           results.receivableMismatches.push({
