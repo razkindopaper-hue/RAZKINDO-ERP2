@@ -14,7 +14,8 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Install build tools needed for native modules (sharp, prisma) on Alpine/ARM
-RUN apk add --no-cache python3 make g++
+# Retry apk up to 3 times to handle transient I/O errors on slow networks
+RUN for i in 1 2 3; do apk add --no-cache python3 make g++ && break || sleep 5; done
 
 COPY package.json package-lock.json ./
 
@@ -33,8 +34,7 @@ RUN cd mini-services/event-queue && npm install
 FROM node:22-alpine AS builder
 WORKDIR /app
 
-# Install build tools for prisma generate
-RUN apk add --no-cache python3 make g++
+# Builder does not need build tools - native modules already compiled in deps stage
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/mini-services/event-queue/node_modules ./mini-services/event-queue/node_modules

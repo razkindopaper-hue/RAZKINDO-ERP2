@@ -594,7 +594,7 @@ async function askLLM(
   const { chatCompletion, isAvailable } = await import('@/lib/ai');
 
   if (!isAvailable()) {
-    return '⚠️ AI belum dikonfigurasi. Tambahkan OLLAMA_HOST di file .env untuk mengaktifkan fitur AI chat.';
+    return '⚠️ AI belum dikonfigurasi. Tambahkan GROQ_API_KEY di file .env untuk mengaktifkan fitur AI chat. Dapatkan gratis di https://console.groq.com/keys';
   }
 
   const today = format(new Date(), 'EEEE, dd MMMM yyyy', { locale: id });
@@ -639,7 +639,7 @@ CONTOH ANALISIS:
 - "perbaiki selisih data yang ditemukan" → Analisa discrepancy, rekomendasikan fix spesifik per transaksi
 - "penyebab selisih di data keuangan" → Root cause analysis, identifikasi pola dan korelasi`;
 
-  // Build messages array for Gemini
+  // Build messages array for Groq AI
   const messages: { role: string; content: string }[] = [
     { role: 'system', content: systemPrompt },
   ];
@@ -660,7 +660,7 @@ CONTOH ANALISIS:
     const result = await chatCompletion({ messages });
     return result.content || 'Maaf, saya tidak bisa merespons saat ini. Coba lagi nanti.';
   } catch (err: any) {
-    console.error('Gemini error:', err);
+    console.error('[AI Chat] LLM error:', err);
     return '⚠️ AI sedang tidak tersedia. Silakan coba lagi dalam beberapa saat.';
   }
 }

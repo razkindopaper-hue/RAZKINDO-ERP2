@@ -1,5 +1,5 @@
 // =====================================================================
-// GET /api/ai/status - Check Ollama connection & list available models
+// GET /api/ai/status - Check AI configuration & list available models
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -21,39 +21,22 @@ export async function GET(request: NextRequest) {
         connected: false,
         models: [],
         defaultModel: null,
-        message: 'Ollama belum dikonfigurasi. Tambahkan OLLAMA_HOST di .env',
+        message: 'AI belum dikonfigurasi. Tambahkan GROQ_API_KEY di .env. Dapatkan gratis di https://console.groq.com/keys',
       });
     }
 
-    // Try to connect and list models
-    let models: string[] = [];
-    let connected = false;
-    let errorMessage: string | null = null;
-
-    try {
-      models = await listModels();
-      connected = true;
-    } catch (err: any) {
-      const msg = err?.message || '';
-      if (msg.includes('ECONNREFUSED') || msg.includes('connection refused')) {
-        errorMessage = `Ollama tidak bisa dijangkau di ${process.env.OLLAMA_HOST || 'http://localhost:11434'}. Pastikan Ollama berjalan.`;
-      } else {
-        errorMessage = `Error koneksi Ollama: ${msg.substring(0, 200)}`;
-      }
-    }
-
-    // Check if default model is available
-    const defaultModel = process.env.OLLAMA_MODEL || 'llama3:8b';
-    const hasDefaultModel = models.some(m => m === defaultModel || m.startsWith(defaultModel.split(':')[0]));
+    // Groq is a cloud API — no connection check needed
+    // Just return the available models
+    const models = await listModels();
+    const defaultModel = process.env.AI_MODEL || 'llama-3.3-70b-versatile';
 
     return NextResponse.json({
       configured: true,
-      connected,
+      connected: true, // Cloud API — always connected if key is valid
       models,
       defaultModel,
-      hasDefaultModel,
-      host: process.env.OLLAMA_HOST || 'http://localhost:11434',
-      errorMessage,
+      hasDefaultModel: models.length > 0,
+      provider: 'Groq (Free)',
     });
   } catch (err: any) {
     console.error('[AI/Status] Error:', err);

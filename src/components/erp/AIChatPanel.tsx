@@ -81,7 +81,7 @@ export default function AIChatPanel() {
 
   const isSuperAdmin = user?.role === 'super_admin';
 
-  // Ollama status check
+  // AI status check
   const [ollamaStatus, setOllamaStatus] = useState<{connected: boolean; models: string[]; defaultModel: string; host: string; checked: boolean}>({connected: false, models: [], defaultModel: '', host: '', checked: false});
 
   useEffect(() => {
@@ -1168,13 +1168,13 @@ export default function AIChatPanel() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                {/* Ollama Status Indicator */}
+                {/* AI Status Indicator */}
                 {ollamaStatus.checked && (
-                  <div className="flex items-center gap-1 mr-1" title={ollamaStatus.connected ? `Ollama: ${ollamaStatus.models.length} model(s) — ${ollamaStatus.defaultModel}` : 'Ollama tidak terhubung'}>
+                  <div className="flex items-center gap-1 mr-1" title={ollamaStatus.connected ? `AI: ${ollamaStatus.defaultModel}` : 'AI tidak terhubung'}>
                     {ollamaStatus.connected ? (
-                      <div className="flex items-center gap-1 bg-white/20 rounded-full px-2 py-0.5">
-                        <Cpu className="w-3 h-3" />
-                        <span className="text-[10px] font-medium">Ollama</span>
+                      <div className="flex items-center gap-1 bg-emerald-500/30 rounded-full px-2 py-0.5">
+                        <Cpu className="w-3 h-3 text-emerald-300" />
+                        <span className="text-[10px] font-medium">AI</span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1 bg-red-500/40 rounded-full px-2 py-0.5">

@@ -357,7 +357,7 @@ async function findRootCause(discrepancyData: any) {
   const { chatCompletion, isAvailable } = await import('@/lib/ai');
 
   if (!isAvailable()) {
-    return '⚠️ AI belum dikonfigurasi. Tambahkan OLLAMA_HOST di file .env untuk analisis akar penyebab otomatis.';
+    return '⚠️ AI belum dikonfigurasi. Tambahkan GROQ_API_KEY di file .env untuk analisis akar penyebab otomatis. Dapatkan gratis di https://console.groq.com/keys';
   }
 
   // Build context string from discrepancy data
@@ -443,7 +443,7 @@ FORMAT JAWABAN:
     });
     return result.content || 'Gagal menganalisis akar penyebab.';
   } catch (err: any) {
-    console.error('Root cause Gemini error:', err);
+    console.error('[AI] Root cause analysis error:', err);
     return '⚠️ AI sedang tidak tersedia untuk analisis akar penyebab. Coba lagi nanti.';
   }
 }
