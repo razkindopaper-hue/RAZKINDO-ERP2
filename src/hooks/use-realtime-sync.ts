@@ -133,6 +133,12 @@ const EVENT_TO_QUERY_KEYS: Record<string, string[][]> = {
     ['receivables'],
   ],
 
+  // Chat message events — invalidate chat rooms and messages in real-time
+  'erp:chat_message': [
+    ['chat-messages'],
+    ['chat-rooms'],
+  ],
+
   // Global refresh — handled specially with queryClient.invalidateQueries()
   // and a longer debounce (see handler below)
   'erp:refresh_all': [],

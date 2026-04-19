@@ -205,17 +205,22 @@ export default function ZaiAdminChat() {
   );
 }
 
+function BoldText({ text }: { text: string }) {
+  // Safe markdown-like rendering: split by **bold** markers and render as <strong> tags
+  const parts = text.split(/(\*\*.*?\*\*)/);
+  return <>{parts.map((p, j) => /^\*\*.*\*\*$/.test(p) ? <strong key={j}>{p.slice(2, -2)}</strong> : p)}</>;
+}
+
 function renderMarkdown(text: string): React.ReactNode {
   return text.split('\n').map((line, i) => {
-    const bold = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     const isBullet = /^[\s]*[-•]\s/.test(line);
     const isNum = /^[\s]*\d+\.\s/.test(line);
     const isHr = /^[-*_]{3,}$/.test(line);
 
     if (isHr) return <hr key={i} className="border-emerald-200/40 dark:border-emerald-800/40 my-2" />;
-    if (isBullet) return <div key={i} className="flex gap-1.5 ml-1"><span className="text-emerald-500 shrink-0">•</span><span dangerouslySetInnerHTML={{ __html: bold.replace(/^[\s]*[-•]\s*/, '') }} /></div>;
-    if (isNum) { const n = line.match(/^[\s]*(\d+)\./)?.[1]; return <div key={i} className="flex gap-1.5 ml-1"><span className="text-emerald-500 font-semibold shrink-0 min-w-[1.2em]">{n}.</span><span dangerouslySetInnerHTML={{ __html: bold.replace(/^[\s]*\d+\.\s*/, '') }} /></div>; }
+    if (isBullet) return <div key={i} className="flex gap-1.5 ml-1"><span className="text-emerald-500 shrink-0">•</span><BoldText text={line.replace(/^[\s]*[-•]\s*/, '')} /></div>;
+    if (isNum) { const n = line.match(/^[\s]*(\d+)\./)?.[1]; return <div key={i} className="flex gap-1.5 ml-1"><span className="text-emerald-500 font-semibold shrink-0 min-w-[1.2em]">{n}.</span><BoldText text={line.replace(/^[\s]*\d+\.\s*/, '')} /></div>; }
     if (!line.trim()) return <br key={i} />;
-    return <span key={i} dangerouslySetInnerHTML={{ __html: bold }} />;
+    return <span key={i}><BoldText text={line} /></span>;
   });
 }

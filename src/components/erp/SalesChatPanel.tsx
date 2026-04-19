@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { getInitials, formatDateTime } from '@/lib/erp-helpers';
+import { getInitials } from '@/lib/erp-helpers';
 import {
   MessageCircle, Search, Send, X, ChevronLeft, User, Loader2,
 } from 'lucide-react';

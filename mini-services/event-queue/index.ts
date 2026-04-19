@@ -556,7 +556,7 @@ function trimDeadLetter(): void {
 }
 
 // =====================================================================
-// Batch Processor — runs every 50ms
+// Batch Processor — runs every 30ms
 // =====================================================================
 
 function processTick(): void {

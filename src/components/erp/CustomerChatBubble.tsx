@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { getInitials } from '@/lib/erp-helpers';
@@ -65,15 +65,23 @@ export default function CustomerChatBubble() {
     }
   }, []);
 
-  // Create room and fetch messages when opened
+  // Poll messages while chat is open
+  const fetchMessages = useCallback(async () => {
+    if (!isOpen || !roomId) return;
+    try {
+      const data = await apiFetch(`/api/chat/rooms/${roomId}/messages`);
+      setMessages(data.messages || []);
+    } catch {}
+  }, [isOpen, roomId]);
+
   useEffect(() => {
     if (!isOpen || !roomId) return;
     setLoading(true);
-    apiFetch(`/api/chat/rooms/${roomId}/messages`)
-      .then((data) => setMessages(data.messages || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [isOpen, roomId]);
+    fetchMessages().finally(() => setLoading(false));
+    // Poll every 5 seconds for new messages
+    const interval = setInterval(fetchMessages, 5000);
+    return () => clearInterval(interval);
+  }, [isOpen, roomId, fetchMessages]);
 
   // Create room on first open
   const handleOpen = async () => {
