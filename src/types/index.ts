@@ -443,7 +443,7 @@ export interface DashboardStats {
   totalProfit: number;
   totalTransactions: number;
   pendingApprovals: number;
-  lowStockProducts: number;
+  lowStockCount: number;
   onlineUsers: number;
   todaySales: number;
   todayProfit: number;

@@ -35,10 +35,10 @@ export async function PATCH(
       return NextResponse.json({ error: 'Status tidak valid' }, { status: 400 });
     }
 
-    // Fetch withdrawal with customer info
+    // Fetch withdrawal (no PostgREST joins — CashbackWithdrawal has no Prisma relations)
     const { data: withdrawal } = await db
       .from('cashback_withdrawal')
-      .select('*, customer:customers(id, name, cashback_balance)')
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -55,9 +55,16 @@ export async function PATCH(
       return NextResponse.json({ error: 'Pencairan harus disetujui terlebih dahulu sebelum diproses' }, { status: 400 });
     }
 
+    // Fetch customer for balance operations (separate query, no join)
+    const { data: customer } = await db
+      .from('customers')
+      .select('id, name, cashback_balance')
+      .eq('id', withdrawal.customer_id)
+      .single();
+
     // ── Handle rejection - refund cashback to customer (atomic) ──
     if (data.status === 'rejected') {
-      const currentBalance = withdrawal.customer?.cashback_balance || 0;
+      const currentBalance = customer?.cashback_balance || 0;
       const refundAmount = withdrawal.amount;
 
       // Use atomic RPC for refund (prevents race condition)
@@ -135,11 +142,6 @@ export async function PATCH(
           { status: 400 }
         );
       }
-
-      // Store finance details in withdrawal record
-      data.source_type = data.sourceType;
-      data.bank_account_id = data.bankAccountId || null;
-      data.cash_box_id = data.cashBoxId || null;
     }
 
     // Update withdrawal status
@@ -157,37 +159,31 @@ export async function PATCH(
     }
     // Store finance fields on processed
     if (data.status === 'processed') {
-      updateData.source_type = data.source_type;
-      updateData.bank_account_id = data.bank_account_id;
-      updateData.cash_box_id = data.cash_box_id;
+      updateData.source_type = data.sourceType;
+      updateData.bank_account_id = data.bankAccountId || null;
+      updateData.cash_box_id = data.cashBoxId || null;
     }
 
-    const { data: updated, error } = await db
+    const { data: updated } = await db
       .from('cashback_withdrawal')
       .update(updateData)
       .eq('id', id)
-      .select(`
-        *,
-        customer:customers(id, name, phone),
-        processed_by:users!processed_by_id(id, name),
-        bank_account:bank_accounts(id, name, bank_name, account_no),
-        cash_box:cash_boxes(id, name)
-      `)
+      .select('*')
       .single();
 
-    if (error) {
-      console.error('Withdrawal update error:', error);
+    if (!updated) {
+      console.error('Withdrawal update error: no data returned');
       return NextResponse.json({ error: 'Gagal memperbarui pencairan' }, { status: 500 });
     }
 
     // Create event
     createEvent(db, 'cashback_withdrawal_' + data.status, {
       withdrawalId: id,
-      customerName: withdrawal.customer?.name,
+      customerName: customer?.name,
       amount: withdrawal.amount,
       status: data.status,
       processedBy: authUserId.user.name,
-      sourceType: data.source_type || null,
+      sourceType: data.sourceType || null,
       destinationType: data.destinationType || null,
       rejectionReason: data.rejectionReason || null,
     }).catch(() => {});
@@ -196,10 +192,7 @@ export async function PATCH(
       success: true,
       withdrawal: {
         ...toCamelCase(updated),
-        customer: toCamelCase(updated?.customer || null),
-        processedBy: toCamelCase(updated?.processedBy || null),
-        bankAccount: toCamelCase(updated?.bank_account || null),
-        cashBox: toCamelCase(updated?.cash_box || null),
+        customer: customer ? toCamelCase(customer) : null,
       },
     });
   } catch (error) {

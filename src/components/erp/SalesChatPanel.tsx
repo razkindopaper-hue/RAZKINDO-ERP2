@@ -7,7 +7,7 @@ import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { getInitials } from '@/lib/erp-helpers';
 import {
-  MessageCircle, Search, Send, X, ChevronLeft, User, Loader2,
+  MessageCircle, Search, Send, X, ChevronLeft, User, Loader2, Megaphone,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,9 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import dynamic from 'next/dynamic';
+
+const BroadcastDialog = dynamic(() => import('./BroadcastDialog'), { ssr: false });
 
 // ==================== TYPES ====================
 interface ChatRoom {
@@ -72,6 +75,7 @@ export default function SalesChatPanel() {
   const [search, setSearch] = useState('');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -134,8 +138,11 @@ export default function SalesChatPanel() {
   const totalUnread = rooms.reduce((sum, r) => sum + r.salesUnread, 0);
 
   // ==================== MOBILE: Room selected ====================
-  if (selectedRoomId && typeof window !== 'undefined' && window.innerWidth < 768) {
+  const isMobileSelected = selectedRoomId && typeof window !== 'undefined' && window.innerWidth < 768;
+
+  if (isMobileSelected) {
     return (
+      <>
       <div className="flex flex-col h-full bg-background">
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b bg-card/80 backdrop-blur-xl shrink-0 safe-top">
@@ -153,6 +160,15 @@ export default function SalesChatPanel() {
               <p className="text-[11px] text-muted-foreground">{selectedRoom.customer.phone}</p>
             )}
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-amber-600 hover:text-amber-700"
+            onClick={() => setBroadcastOpen(true)}
+            title="Broadcast"
+          >
+            <Megaphone className="w-4 h-4" />
+          </Button>
         </div>
 
         {/* Messages */}
@@ -218,20 +234,34 @@ export default function SalesChatPanel() {
           </div>
         </div>
       </div>
+      <BroadcastDialog open={broadcastOpen} onOpenChange={setBroadcastOpen} />
+      </>
     );
   }
 
   // ==================== DESKTOP: Room List + Messages ====================
   return (
+    <>
     <div className="flex h-full gap-0 rounded-xl border bg-card overflow-hidden">
       {/* Room List */}
       <div className="w-72 lg:w-80 shrink-0 flex flex-col border-r">
         <div className="px-3 py-2.5 border-b space-y-2">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <MessageCircle className="w-4 h-4 text-emerald-600" />
-            Chat Pelanggan
-            {totalUnread > 0 && <Badge className="bg-emerald-600 text-[10px] px-1.5 h-5">{totalUnread}</Badge>}
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-emerald-600" />
+              Chat Pelanggan
+              {totalUnread > 0 && <Badge className="bg-emerald-600 text-[10px] px-1.5 h-5">{totalUnread}</Badge>}
+            </h3>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+              onClick={() => setBroadcastOpen(true)}
+              title="Broadcast Pesan"
+            >
+              <Megaphone className="w-4 h-4" />
+            </Button>
+          </div>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
@@ -409,5 +439,8 @@ export default function SalesChatPanel() {
         )}
       </div>
     </div>
-  );
+
+    {/* Broadcast Dialog */}
+    <BroadcastDialog open={broadcastOpen} onOpenChange={setBroadcastOpen} />
+    </>);
 }

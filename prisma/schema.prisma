@@ -986,6 +986,9 @@ model CashbackWithdrawal {
   processedById   String?   @map("processed_by_id")
   processedAt     DateTime? @map("processed_at")
   rejectionReason String?   @map("rejection_reason")
+  sourceType      String?   @map("source_type") // profit_paid, hpp_paid — which pool was debited
+  bankAccountId   String?   @map("bank_account_id") // destination bank account
+  cashBoxId       String?   @map("cash_box_id") // destination cash box
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -999,19 +1002,24 @@ model CashbackWithdrawal {
 // ================================
 
 model CustomerReferral {
-  id                 String   @id @default(cuid())
-  customerId         String   @map("customer_id") // Referrer
-  referralCustomerId String   @map("referral_customer_id") // Referred customer
-  referralCode       String?  @map("referral_code")
+  id                 String    @id @default(cuid())
+  customerId         String    @map("customer_id") // Referrer
+  referralCustomerId String?   @map("referral_customer_id") // Referred customer (nullable — prospect may not be linked yet)
+  referralCode       String?   @map("referral_code")
+  businessName       String?   @map("business_name") // Referred business name
+  picName            String?   @map("pic_name") // Referred person in charge name
   phone              String?
-  status             String   @default("pending") // pending, completed, rewarded
-  bonusAmount        Float    @default(0) @map("bonus_amount")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  status             String    @default("new") // new, contacted, converted, lost
+  notes              String?   @db.Text
+  followUpDate       DateTime? @map("follow_up_date")
+  bonusAmount        Float     @default(0) @map("bonus_amount")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   @@index([customerId])
   @@index([referralCustomerId])
   @@index([status])
+  @@index([phone])
   @@map("customer_referral")
 }
 

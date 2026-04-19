@@ -62,7 +62,7 @@ interface TableInfo {
 
 interface MonitoringData {
   system: SystemInfo;
-  supabase: {
+  database: {
     tables: TableInfo[];
     totalRows: number;
   };
@@ -82,7 +82,7 @@ interface RealtimeMetrics {
     free: number;
     usagePercent: number;
   };
-  supabase: {
+  database: {
     readMs: number;
     writeMs: number;
     status: 'healthy' | 'degraded' | 'down';
@@ -311,7 +311,7 @@ export default function MonitoringTab() {
   // Sparkline data
   const cpuHistory = metricsRef.current.map(m => m.cpu.usage);
   const memHistory = metricsRef.current.map(m => m.memory.usagePercent);
-  const latencyHistory = metricsRef.current.map(m => m.supabase.readMs >= 0 ? m.supabase.readMs : 0);
+  const latencyHistory = metricsRef.current.map(m => m.database.readMs >= 0 ? m.database.readMs : 0);
 
   if (!isSuperAdmin) {
     return (
@@ -326,9 +326,9 @@ export default function MonitoringTab() {
   }
 
   const sys = data?.system;
-  const supa = data?.supabase;
-  const safeToDeleteTables = supa?.tables.filter(t => t.safeToDelete) || [];
-  const canCleanOldTables = supa?.tables.filter(t => t.canCleanOld || t.safeToDelete) || [];
+  const dbInfo = data?.database;
+  const safeToDeleteTables = dbInfo?.tables.filter(t => t.safeToDelete) || [];
+  const canCleanOldTables = dbInfo?.tables.filter(t => t.canCleanOld || t.safeToDelete) || [];
 
   // Execute cleanup
   const handleCleanup = async () => {
@@ -363,7 +363,7 @@ export default function MonitoringTab() {
     }
   };
 
-  const selectedTableInfo = supa?.tables.find(t => t.name === selectedTable);
+  const selectedTableInfo = dbInfo?.tables.find(t => t.name === selectedTable);
 
   return (
     <div className="space-y-4">
@@ -452,14 +452,14 @@ export default function MonitoringTab() {
                 <div className="flex flex-col items-center gap-1">
                   <div className="relative w-[110px] h-[110px] rounded-full border-4 border-dashed flex flex-col items-center justify-center"
                     style={{
-                      borderColor: metrics.supabase.status === 'healthy' ? '#22c55e'
-                        : metrics.supabase.status === 'degraded' ? '#eab308'
+                      borderColor: metrics.database.status === 'healthy' ? '#22c55e'
+                        : metrics.database.status === 'degraded' ? '#eab308'
                         : '#ef4444'
                     }}
                   >
                     <Timer className="w-4 h-4 text-muted-foreground mb-0.5" />
-                    <span className={`text-lg font-bold leading-none ${getLatencyColor(metrics.supabase.readMs)}`}>
-                      {metrics.supabase.readMs >= 0 ? metrics.supabase.readMs : '—'}
+                    <span className={`text-lg font-bold leading-none ${getLatencyColor(metrics.database.readMs)}`}>
+                      {metrics.database.readMs >= 0 ? metrics.database.readMs : '—'}
                     </span>
                     <span className="text-[10px] text-muted-foreground">ms</span>
                   </div>
@@ -507,20 +507,20 @@ export default function MonitoringTab() {
                 </div>
               </div>
 
-              {/* Supabase Latency Detail */}
-              <div className={`space-y-3 p-3 border rounded-lg ${getLatencyBg(metrics.supabase.readMs)}`}>
+              {/* Database Latency Detail */}
+              <div className={`space-y-3 p-3 border rounded-lg ${getLatencyBg(metrics.database.readMs)}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Database className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Latensi Supabase</span>
-                    {getStatusBadge(metrics.supabase.status)}
+                    <span className="text-sm font-medium">Latensi Database</span>
+                    {getStatusBadge(metrics.database.status)}
                   </div>
                 </div>
 
-                {metrics.supabase.error ? (
+                {metrics.database.error ? (
                   <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>{metrics.supabase.error}</span>
+                    <span>{metrics.database.error}</span>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
@@ -528,19 +528,19 @@ export default function MonitoringTab() {
                     <div className="space-y-1 p-2.5 bg-background/50 rounded-lg">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">Read Query</span>
-                        <span className={`text-sm font-bold ${getLatencyColor(metrics.supabase.readMs)}`}>
-                          {metrics.supabase.readMs} ms
+                        <span className={`text-sm font-bold ${getLatencyColor(metrics.database.readMs)}`}>
+                          {metrics.database.readMs} ms
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
-                        {metrics.supabase.readMs < 100 ? <ArrowDown className="w-3 h-3 text-green-500" />
-                          : metrics.supabase.readMs < 300 ? <Minus className="w-3 h-3 text-yellow-500" />
+                        {metrics.database.readMs < 100 ? <ArrowDown className="w-3 h-3 text-green-500" />
+                          : metrics.database.readMs < 300 ? <Minus className="w-3 h-3 text-yellow-500" />
                           : <ArrowUp className="w-3 h-3 text-red-500" />}
                         <span className="text-[10px] text-muted-foreground">
-                          {metrics.supabase.readMs < 50 ? 'Sangat Cepat'
-                            : metrics.supabase.readMs < 100 ? 'Cepat'
-                            : metrics.supabase.readMs < 300 ? 'Normal'
-                            : metrics.supabase.readMs < 700 ? 'Lambat'
+                          {metrics.database.readMs < 50 ? 'Sangat Cepat'
+                            : metrics.database.readMs < 100 ? 'Cepat'
+                            : metrics.database.readMs < 300 ? 'Normal'
+                            : metrics.database.readMs < 700 ? 'Lambat'
                             : 'Sangat Lambat'}
                         </span>
                       </div>
@@ -550,19 +550,19 @@ export default function MonitoringTab() {
                     <div className="space-y-1 p-2.5 bg-background/50 rounded-lg">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">Write/RPC</span>
-                        <span className={`text-sm font-bold ${getLatencyColor(metrics.supabase.writeMs)}`}>
-                          {metrics.supabase.writeMs} ms
+                        <span className={`text-sm font-bold ${getLatencyColor(metrics.database.writeMs)}`}>
+                          {metrics.database.writeMs} ms
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
-                        {metrics.supabase.writeMs < 100 ? <ArrowDown className="w-3 h-3 text-green-500" />
-                          : metrics.supabase.writeMs < 300 ? <Minus className="w-3 h-3 text-yellow-500" />
+                        {metrics.database.writeMs < 100 ? <ArrowDown className="w-3 h-3 text-green-500" />
+                          : metrics.database.writeMs < 300 ? <Minus className="w-3 h-3 text-yellow-500" />
                           : <ArrowUp className="w-3 h-3 text-red-500" />}
                         <span className="text-[10px] text-muted-foreground">
-                          {metrics.supabase.writeMs < 50 ? 'Sangat Cepat'
-                            : metrics.supabase.writeMs < 100 ? 'Cepat'
-                            : metrics.supabase.writeMs < 300 ? 'Normal'
-                            : metrics.supabase.writeMs < 700 ? 'Lambat'
+                          {metrics.database.writeMs < 50 ? 'Sangat Cepat'
+                            : metrics.database.writeMs < 100 ? 'Cepat'
+                            : metrics.database.writeMs < 300 ? 'Normal'
+                            : metrics.database.writeMs < 700 ? 'Lambat'
                             : 'Sangat Lambat'}
                         </span>
                       </div>
@@ -576,7 +576,7 @@ export default function MonitoringTab() {
                   <div className="opacity-80">
                     <MiniSparkline
                       data={latencyHistory}
-                      color={metrics.supabase.readMs < 100 ? '#22c55e' : metrics.supabase.readMs < 300 ? '#eab308' : '#ef4444'}
+                      color={metrics.database.readMs < 100 ? '#22c55e' : metrics.database.readMs < 300 ? '#eab308' : '#ef4444'}
                     />
                   </div>
                 </div>
@@ -636,28 +636,28 @@ export default function MonitoringTab() {
         </Card>
       )}
 
-      {/* ===== SUPABASE STORAGE ===== */}
+      {/* ===== DATABASE STORAGE ===== */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Database className="w-4 h-4" />
-                Penyimpanan Supabase
+                Penyimpanan Database
               </CardTitle>
               <CardDescription>Jumlah baris per tabel di database</CardDescription>
             </div>
-            {supa && (
-              <Badge variant="outline">{formatNumber(supa.totalRows)} total baris</Badge>
+            {dbInfo && (
+              <Badge variant="outline">{formatNumber(dbInfo.totalRows)} total baris</Badge>
             )}
           </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="space-y-2">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-          ) : supa?.tables ? (
+          ) : dbInfo?.tables ? (
             <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
-              {supa.tables
+              {dbInfo.tables
                 .sort((a, b) => b.rows - a.rows)
                 .map((table) => (
                 <div key={table.name} className="flex items-center justify-between p-2.5 border rounded-lg hover:bg-muted/30 transition-colors gap-2">
@@ -697,7 +697,7 @@ export default function MonitoringTab() {
             Pembersihan Data
           </CardTitle>
           <CardDescription>
-            Hapus data yang tidak diperlukan untuk menghemat penyimpanan Supabase
+            Hapus data yang tidak diperlukan untuk menghemat penyimpanan Database
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

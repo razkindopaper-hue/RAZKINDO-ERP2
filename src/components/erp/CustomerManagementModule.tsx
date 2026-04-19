@@ -454,11 +454,16 @@ export default function CustomerManagementModule() {
   const [monitoringPage, setMonitoringPage] = useState(1);
   const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
 
-  // Reassign dialog state
+  // Reassign dialog state (monitoring tab)
   const [reassignOpen, setReassignOpen] = useState<MonitoringCustomer | null>(null);
   const [reassignTarget, setReassignTarget] = useState('');
   const [reassignReason, setReassignReason] = useState('');
   const [reassignLoading, setReassignLoading] = useState(false);
+
+  // Assign dialog state (pelanggan tab — super admin only)
+  const [assigningCustomer, setAssigningCustomer] = useState<Customer | null>(null);
+  const [assignTargetId, setAssignTargetId] = useState('');
+  const [assignLoading, setAssignLoading] = useState(false);
 
   // Follow-up detail dialog state
   const [followUpDetailOpen, setFollowUpDetailOpen] = useState<MonitoringCustomer | null>(null);
@@ -544,6 +549,21 @@ export default function CustomerManagementModule() {
     URL.revokeObjectURL(link.href);
     toast.success(`${allCustomers.length} pelanggan berhasil didownload`);
   };
+
+  // ========== SALES USERS QUERY (for assign dialog) ==========
+  const { data: salesUsersData } = useQuery({
+    queryKey: ['sales-users', selectedUnitId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('role', 'sales');
+      params.set('status', 'approved');
+      if (selectedUnitId) params.set('unitId', selectedUnitId);
+      return apiFetch<any>(`/api/users?${params.toString()}`);
+    },
+    enabled: isAdmin,
+    staleTime: 5 * 60 * 1000, // 5 min cache
+  });
+  const salesUsers = (salesUsersData?.users || []).filter((u: any) => u.isActive !== false);
 
   // ========== MONITORING QUERY (from CustomerMonitoringModule) ==========
   const { data: monitoringData, isLoading: monitoringLoading, error: monitoringError, refetch: refetchMonitoring } = useQuery({
@@ -707,6 +727,51 @@ export default function CustomerManagementModule() {
       toast.success('Info pelanggan berhasil disalin ke clipboard!');
     } catch {
       toast.error('Gagal membagikan info pelanggan');
+    }
+  };
+
+  // Assign to sales handler (pelanggan tab)
+  const handleAssignSubmit = async () => {
+    if (!assigningCustomer) return;
+    if (!assignTargetId) {
+      // User selected "Tanpa Sales" — unassign
+      await handleAssignUnassign(assigningCustomer.id);
+      return;
+    }
+    setAssignLoading(true);
+    try {
+      await apiFetch(`/api/customers/${assigningCustomer.id}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ assignedToId: assignTargetId }),
+      });
+      toast.success(`${assigningCustomer.name} berhasil dialihkan ke sales terpilih`);
+      setAssigningCustomer(null);
+      setAssignTargetId('');
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-monitoring'] });
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal mengalihkan pelanggan');
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
+  const handleAssignUnassign = async (customerId: string) => {
+    setAssignLoading(true);
+    try {
+      await apiFetch(`/api/customers/${customerId}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ assignedToId: '' }),
+      });
+      toast.success('Pelanggan berhasil dialihkan (tanpa sales)');
+      setAssigningCustomer(null);
+      setAssignTargetId('');
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-monitoring'] });
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal mengalihkan pelanggan');
+    } finally {
+      setAssignLoading(false);
     }
   };
 
@@ -928,6 +993,17 @@ export default function CustomerManagementModule() {
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingCustomer(c)}>
                         <Edit className="w-3 h-3" />
                       </Button>
+                      {isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-purple-500 hover:text-purple-600"
+                          title="Alihkan ke Sales"
+                          onClick={() => { setAssigningCustomer(c); setAssignTargetId(c.assignedTo?.id || ''); }}
+                        >
+                          <ArrowRightLeft className="w-3 h-3" />
+                        </Button>
+                      )}
                       {isAdmin && (
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600" onClick={() => setDeletingCustomer(c)}>
                           <Trash2 className="w-3 h-3" />
@@ -1192,7 +1268,54 @@ export default function CustomerManagementModule() {
         </DialogContent>
       </Dialog>
 
-      {/* ============ REASSIGN DIALOG ============ */}
+      {/* ============ ASSIGN TO SALES DIALOG (Pelanggan Tab) ============ */}
+      <Dialog open={!!assigningCustomer} onOpenChange={(open) => { if (!open) { setAssigningCustomer(null); setAssignTargetId(''); } }}>
+        <DialogContent className="sm:max-w-md w-[calc(100%-2rem)]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="w-5 h-5 text-purple-600" />
+              Alihkan ke Sales
+            </DialogTitle>
+            <DialogDescription>
+              Pilih sales yang akan menangani pelanggan ini
+            </DialogDescription>
+          </DialogHeader>
+          {assigningCustomer && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg border bg-muted/50 space-y-1">
+                <p className="font-medium">{assigningCustomer.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  Sales saat ini: <strong>{assigningCustomer.assignedTo?.name || 'Belum ada'}</strong>
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Pilih Sales</Label>
+                <Select value={assignTargetId} onValueChange={setAssignTargetId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih sales..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Tanpa Sales</SelectItem>
+                    {salesUsers.map((u: any) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter className="flex-col gap-2 sm:flex-row">
+                <Button variant="default" className="bg-purple-600 hover:bg-purple-700" disabled={assignLoading} onClick={handleAssignSubmit}>
+                  {assignLoading ? 'Mengalihkan...' : assignTargetId ? 'Alihkan' : 'Lepas dari Sales'}
+                </Button>
+                <Button variant="outline" onClick={() => { setAssigningCustomer(null); setAssignTargetId(''); }}>
+                  Batal
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ REASSIGN DIALOG (Monitoring Tab) ============ */}
       <Dialog open={!!reassignOpen} onOpenChange={(open) => { if (!open) { setReassignOpen(null); setReassignTarget(''); setReassignReason(''); } }}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-md">
           <DialogHeader>

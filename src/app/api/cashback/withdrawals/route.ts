@@ -18,15 +18,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
 
+    // Build query — use plain field select (no PostgREST joins since CashbackWithdrawal has no Prisma relations)
     let query = db
       .from('cashback_withdrawal')
-      .select(`
-        *,
-        customer:customers(id, name, phone, code),
-        processed_by:users!processed_by_id(id, name),
-        bank_account:bank_accounts(id, name, bank_name, account_no),
-        cash_box:cash_boxes(id, name)
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(100);
 
@@ -35,6 +30,35 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: withdrawals } = await query;
+
+    // Fetch related data manually (no Prisma relations on CashbackWithdrawal)
+    const customerIds = [...new Set((withdrawals || []).map((w: any) => w.customerId).filter(Boolean))];
+    const processedByIds = [...new Set((withdrawals || []).map((w: any) => w.processedById).filter(Boolean))];
+
+    const [customersResult, usersResult] = await Promise.all([
+      customerIds.length > 0
+        ? db.from('customers').select('id, name, phone, code').in('id', customerIds)
+        : Promise.resolve({ data: [] }),
+      processedByIds.length > 0
+        ? db.from('users').select('id, name').in('id', processedByIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const customerMap: Record<string, any> = {};
+    for (const c of (customersResult.data || [])) {
+      customerMap[c.id] = toCamelCase(c);
+    }
+    const userMap: Record<string, any> = {};
+    for (const u of (usersResult.data || [])) {
+      userMap[u.id] = toCamelCase(u);
+    }
+
+    // Join data
+    const mappedWithdrawals = (withdrawals || []).map((w: any) => ({
+      ...toCamelCase(w),
+      customer: customerMap[w.customerId] || null,
+      processedBy: userMap[w.processedById] || null,
+    }));
 
     // Summary stats
     const { data: allWithdrawals } = await db
@@ -52,13 +76,7 @@ export async function GET(request: NextRequest) {
     };
 
     return NextResponse.json({
-      withdrawals: (withdrawals || []).map(w => ({
-        ...toCamelCase(w),
-        customer: toCamelCase(w.customer || null),
-        processedBy: toCamelCase(w.processedBy || null),
-        bankAccount: toCamelCase(w.bank_account || null),
-        cashBox: toCamelCase(w.cash_box || null),
-      })),
+      withdrawals: mappedWithdrawals,
       stats,
     });
   } catch (error) {

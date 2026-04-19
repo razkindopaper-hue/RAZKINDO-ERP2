@@ -608,7 +608,7 @@ export default function DashboardModule() {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground truncate">Stok Rendah</p>
-              <p className="text-sm sm:text-lg font-bold">{Number(dashboard?.lowStockProducts) || 0}</p>
+              <p className="text-sm sm:text-lg font-bold">{dashboard?.lowStockCount ?? 0}</p>
             </div>
           </CardContent>
         </Card>

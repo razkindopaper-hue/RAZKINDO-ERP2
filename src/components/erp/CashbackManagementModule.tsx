@@ -163,17 +163,22 @@ function ConfigTab() {
   const [savingRefBonus, setSavingRefBonus] = useState(false);
 
   // Check migration status
-  const { data: migrationStatus } = useQuery({
+  const { data: migrationStatus, isError: migrationCheckFailed } = useQuery({
     queryKey: ['pwa-migration-status'],
     queryFn: () => apiFetch<{ ready: boolean; tables: Record<string, boolean> }>('/api/migrate-customer-pwa'),
     staleTime: 60_000,
+    retry: 1,
   });
 
   useEffect(() => {
     if (migrationStatus) {
       setMigrationNeeded(!migrationStatus.ready);
+    } else if (migrationCheckFailed) {
+      // If migration check fails (e.g. 500), assume tables exist since Prisma schema has them.
+      // This prevents the component from being stuck on the loading spinner forever.
+      setMigrationNeeded(false);
     }
-  }, [migrationStatus]);
+  }, [migrationStatus, migrationCheckFailed]);
 
   const runMigration = useCallback(async () => {
     if (!dbUrl.trim()) {

@@ -182,12 +182,11 @@ export async function GET(request: NextRequest) {
       })(),
 
       // Top products (fetch from transaction_items, filter by transaction date in JS)
-      // NOTE: Supabase REST API cannot filter on nested relation fields server-side,
-      // so we limit to last 5000 items and filter by date client-side
+      // NOTE: TransactionItem has no createdAt, so we order by id (which is a cuid = roughly time-ordered)
       (() => {
         let q = db.from('transaction_items')
           .select('product_id, product_name, qty, subtotal, transaction:transactions!transaction_id(status, type, transaction_date, unit_id)')
-          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
           .limit(5000);
         return q;
       })(),
@@ -422,7 +421,7 @@ export async function GET(request: NextRequest) {
         totalProfit: totalSalesData.totalProfit,
         totalTransactions,
         pendingApprovals: pendingApprovalsCount.count || 0,
-        lowStockProducts,
+        lowStockCount,
         onlineUsers: onlineUsersCount.count || 0,
         todaySales: todaySalesData.total,
         todayProfit: todaySalesData.totalProfit,

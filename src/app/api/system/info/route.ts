@@ -1,7 +1,7 @@
 // =====================================================================
 // GET /api/system/info - System resource monitoring
 // =====================================================================
-// Returns CPU, RAM, Disk usage and Supabase table row counts.
+// Returns CPU, RAM, Disk usage and Database table row counts.
 // Requires super_admin role.
 // =====================================================================
 
@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
       isDocker: !!process.env.DOCKER_CONTAINER || !!process.env.IS_DOCKER,
     };
 
-    // Fetch Supabase table counts in parallel
+    // Fetch Database table counts in parallel
     const allTableDefs = [
       ...SAFE_DELETE_TABLES.map(t => ({ ...t, safeToDelete: true, canCleanOld: true })),
       ...CLEAN_OLD_TABLES.map(t => ({ ...t, safeToDelete: false, canCleanOld: true })),
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       system: systemInfo,
-      supabase: {
+      database: {
         tables: existingTables,
         totalRows,
       },

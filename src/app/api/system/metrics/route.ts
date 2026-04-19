@@ -1,7 +1,7 @@
 // =====================================================================
 // GET /api/system/metrics - Real-time system metrics (lightweight)
 //
-// Returns CPU, RAM, and Supabase latency for live monitoring.
+// Returns CPU, RAM, and Database latency for live monitoring.
 // Designed to be called every 1 second — no heavy queries.
 // Requires super_admin role.
 // =====================================================================
@@ -52,7 +52,7 @@ function getCPUUsage(): number {
   return _prevCpuInfo.usage;
 }
 
-async function measureSupabaseLatency(): Promise<{
+async function measureDatabaseLatency(): Promise<{
   readMs: number;
   writeMs: number;
   status: 'healthy' | 'degraded' | 'down';
@@ -100,10 +100,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Run CPU/RAM and Supabase latency in parallel
-    const [cpuUsage, supabaseLatency] = await Promise.all([
+    // Run CPU/RAM and Database latency in parallel
+    const [cpuUsage, databaseLatency] = await Promise.all([
       Promise.resolve(getCPUUsage()),
-      measureSupabaseLatency(),
+      measureDatabaseLatency(),
     ]);
 
     const totalMemory = os.totalmem();
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
         free: freeMemory,
         usagePercent: memoryUsagePercent,
       },
-      supabase: supabaseLatency,
+      database: databaseLatency,
       uptime: os.uptime(),
       process: {
         memoryUsage: process.memoryUsage(),
