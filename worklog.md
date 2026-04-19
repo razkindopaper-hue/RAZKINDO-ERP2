@@ -305,3 +305,31 @@ Stage Summary:
 - All data goes through Prisma → local PostgreSQL
 - Z.ai, chat system, and all features properly wired
 - Dev server running successfully (200 OK)
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix Docker build error from migration script + Fix employee registration server error
+
+Work Log:
+- Analyzed Docker build error: scripts/migrate-from-supabase.ts had TypeScript type error (SUPABASE_KEY was string | undefined, not assignable to fetch headers)
+- User said data migration from Supabase not needed ("kalau tidak ada yang bisa diambil dari supabase ga usah")
+- Deleted scripts/migrate-from-supabase.ts to fix build
+- Analyzed employee registration "Terjadi kesalahan server" error in src/app/api/auth/register/route.ts
+- Found root causes:
+  1. insertError.code === '23505' never matched because PrismaQueryBuilder wraps errors with code 'PGRST116'
+  2. throw insertError threw plain objects {message, code} instead of Error instances
+  3. Inner catch error?.status === 400 never matched (thrown object has code, not status)
+  4. Outer catch always returned generic "Terjadi kesalahan server" hiding real error
+- Rewrote register route with:
+  - isUniqueConstraintError() helper checking for P2002, Unique constraint, 23505, duplicate key
+  - Proper error handling without throwing plain objects
+  - Actual error details returned in responses instead of generic messages
+- Verified: 0 TypeScript errors, 0 ESLint errors
+- Committed and pushed to GitHub
+
+Stage Summary:
+- Docker build should now pass (migration script removed)
+- Employee registration now shows actual error messages for debugging
+- Unique constraint violations properly detected and return "Email sudah terdaftar"
+- Files changed: deleted scripts/migrate-from-supabase.ts, rewrote src/app/api/auth/register/route.ts
