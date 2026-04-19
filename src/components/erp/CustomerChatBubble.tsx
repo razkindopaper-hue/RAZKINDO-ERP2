@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '@/lib/api-client';
-import { cn, getInitials } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { getInitials } from '@/lib/erp-helpers';
 import { MessageCircle, X, Send, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
