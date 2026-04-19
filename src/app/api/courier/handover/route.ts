@@ -77,6 +77,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Pre-fetch courier_cash to get hppPending/profitPending for portion calculation ──
+    // BUG-19 FIX: This pre-fetch is INFORMATIONAL ONLY — it provides data for calculating
+    // hpp/profit portions. The actual balance validation happens atomically inside the
+    // process_courier_handover RPC (Step 2 inside the RPC). Do NOT rely on this pre-fetch
+    // for balance validation, as it creates a TOCTOU race condition.
     const { data: courierCashBefore } = await db
       .from('courier_cash')
       .select('id, balance, hpp_pending, profit_pending')
@@ -89,12 +93,10 @@ export async function POST(request: NextRequest) {
     const hppPendingBefore = ccBefore?.hpp_pending || 0;
     const profitPendingBefore = ccBefore?.profit_pending || 0;
 
-    // Validate balance before RPC
-    if (balanceBefore < amount) {
-      return NextResponse.json({
-        error: `Saldo cash tidak cukup untuk melakukan handover sebesar ${formatCurrency(amount)} (saldo: ${formatCurrency(balanceBefore)})`
-      }, { status: 400 });
-    }
+    // NOTE: Balance check removed from here. The RPC handles atomic balance
+    // validation internally (Step 2 of process_courier_handover).
+    // If the RPC fails with insufficient balance, the error handler below
+    // returns a proper 400 response.
 
     // ── Calculate HPP/profit portions for this handover ──
     // Use the ratio of hppPending/profitPending to balance to determine portions.

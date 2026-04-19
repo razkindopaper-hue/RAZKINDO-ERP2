@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       .eq('phone', normalizedPhone)
       .eq('is_active', true)
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (!user) {
       // Don't reveal that phone doesn't exist (security best practice)

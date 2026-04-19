@@ -79,6 +79,14 @@ function clearFailedAttempts(email: string) {
   _loginAttempts.delete(email);
 }
 
+// Periodic cleanup every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of _loginAttempts.entries()) {
+    if (now > entry.lockedUntil + 60_000) _loginAttempts.delete(key);
+  }
+}, 300_000);
+
 // ================================
 // LOGIN HANDLER
 // ================================

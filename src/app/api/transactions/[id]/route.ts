@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { toCamelCase } from '@/lib/supabase-helpers';
 import { verifyAndGetAuthUser, verifyAuthUser } from '@/lib/token';
+import { z } from 'zod';
+
+// BUG-8 FIX: Zod schema for PATCH validation
+const transactionPatchSchema = z.object({
+  courierId: z.string().optional().nullable(),
+  notes: z.string().max(1000).optional(),
+  deliveryAddress: z.string().max(500).optional().nullable(),
+  dueDate: z.string().optional().nullable(),
+});
 
 export async function GET(
   request: NextRequest,
@@ -84,8 +93,7 @@ export async function GET(
     });
   } catch (error) {
     console.error('Get transaction error:', error);
-    const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }
 
@@ -101,6 +109,17 @@ export async function PATCH(
 
     const { id } = await params;
     const data = await request.json();
+
+    // BUG-8 FIX: Validate PATCH body with Zod
+    const parseResult = transactionPatchSchema.safeParse(data);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0];
+      return NextResponse.json(
+        { error: `Validasi gagal: ${firstError.message}` },
+        { status: 400 }
+      );
+    }
+    const validatedData = parseResult.data;
 
     // BUG FIX #4: Add role check for PATCH operations
     const { data: authUserData } = await db
@@ -167,7 +186,6 @@ export async function PATCH(
     return NextResponse.json({ transaction: toCamelCase(transaction) });
   } catch (error) {
     console.error('Update transaction error:', error);
-    const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, prisma } from '@/lib/supabase';
-import { verifyAuthUser } from '@/lib/token';
+import { verifyAndGetAuthUser } from '@/lib/token';
 import { rowsToCamelCase, toCamelCase } from '@/lib/supabase-helpers';
 
 function getPeriodDates(period: string) {
@@ -23,11 +23,17 @@ function getPeriodDates(period: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const authUserId = await verifyAuthUser(request.headers.get('authorization'));
-    if (!authUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const authResult = await verifyAndGetAuthUser(request.headers.get('authorization'), { role: true, id: true });
+    if (!authResult) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const authUser = authResult.user;
 
+    // BUG-9 FIX: Authorization check — only super_admin or the sales user themselves
     const { searchParams } = request.nextUrl;
     const salesId = searchParams.get('salesId');
+    if (authUser.role !== 'super_admin' && authUser.id !== salesId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const period = searchParams.get('period') || 'month';
     const unitId = searchParams.get('unitId') || undefined;
 

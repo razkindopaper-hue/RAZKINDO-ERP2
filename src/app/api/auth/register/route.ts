@@ -4,8 +4,17 @@ import { toCamelCase, rowsToCamelCase, generateId } from '@/lib/supabase-helpers
 import { createLog } from '@/lib/supabase-helpers';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { z } from 'zod';
 import { validateBody, authSchemas } from '@/lib/validators';
 import { enforceSuperAdmin } from '@/lib/require-auth';
+
+const customRoleSchema = z.object({
+  name: z.string().min(1, 'Nama wajib diisi').max(100),
+  phone: z.string().max(20).optional().nullable(),
+  unitId: z.string().optional().nullable(),
+  unitIds: z.array(z.string()).optional().nullable(),
+  customRoleId: z.string().min(1),
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,9 +28,13 @@ export async function POST(request: NextRequest) {
       const authResult = await enforceSuperAdmin(request);
       if (!authResult.success) return authResult.response;
 
-      if (!name || typeof name !== 'string' || !name.trim()) {
-        return NextResponse.json({ error: 'Nama wajib diisi' }, { status: 400 });
+      // BUG-1 FIX: Validate all custom role fields with Zod
+      const customValidation = customRoleSchema.safeParse({ name, phone, unitId, unitIds, customRoleId });
+      if (!customValidation.success) {
+        const firstError = customValidation.error.issues[0]?.message || 'Data tidak valid';
+        return NextResponse.json({ error: firstError }, { status: 400 });
       }
+      const validatedCustom = customValidation.data;
 
       // Verify custom role exists
       const { data: customRole } = await db
@@ -40,10 +53,10 @@ export async function POST(request: NextRequest) {
       const randomPassword = crypto.randomBytes(32).toString('hex');
       const hashedPassword = await bcrypt.hash(randomPassword, 12);
 
-      // Normalize unitIds
-      const selectedUnitIds: string[] = Array.isArray(unitIds)
-        ? unitIds.filter((id: string) => id && id.trim())
-        : (unitId ? [unitId] : []);
+      // Normalize unitIds from validated data
+      const selectedUnitIds: string[] = Array.isArray(validatedCustom.unitIds)
+        ? validatedCustom.unitIds.filter((id: string) => id && id.trim())
+        : (validatedCustom.unitId ? [validatedCustom.unitId] : []);
       const primaryUnitId = selectedUnitIds.length > 0 ? selectedUnitIds[0] : null;
 
       // users table uses snake_case columns — id has no DB default, must generate explicitly
@@ -53,8 +66,8 @@ export async function POST(request: NextRequest) {
           id: generateId(),
           email: internalEmail,
           password: hashedPassword,
-          name: name.trim(),
-          phone: phone || null,
+          name: validatedCustom.name.trim(),
+          phone: validatedCustom.phone || null,
           role: customRole.name,
           custom_role_id: customRoleId,
           unit_id: primaryUnitId,
@@ -91,13 +104,13 @@ export async function POST(request: NextRequest) {
           .select('*')
           .eq('user_id', userCamel.id);
         if (uuData) userUnits = rowsToCamelCase(uuData);
-      } catch {}
+      } catch (err) { console.warn('[Register] user_units fetch failed:', err); }
 
       createLog(db, {
         type: 'activity',
         userId: userCamel.id,
         action: 'register_non_erp',
-        message: `Non-ERP employee created: ${name} (${customRole.name})`
+        message: `Non-ERP employee created: ${validatedCustom.name} (${customRole.name})`
       });
 
       const { password: _, ...userWithoutPassword } = userCamel!;
@@ -218,8 +231,8 @@ export async function POST(request: NextRequest) {
         if (uuData) {
           userUnits = rowsToCamelCase(uuData);
         }
-      } catch {
-        // user_units table may not exist
+      } catch (err) {
+        console.warn('[Register] user_units fetch failed:', err);
       }
 
       // Create log

@@ -81,6 +81,17 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // BUG-3 FIX: Whitelist allowed database URL hosts
+    const allowedHosts = ['supabase.co', 'pooler.supabase.com', 'localhost', '127.0.0.1'];
+    try {
+      const url = new URL(dbUrl);
+      if (!allowedHosts.some(h => url.hostname.endsWith(h))) {
+        return NextResponse.json({ error: 'Database URL tidak diizinkan' }, { status: 400 });
+      }
+    } catch {
+      return NextResponse.json({ error: 'Format database URL tidak valid' }, { status: 400 });
+    }
+
     const { readFile } = await import('fs/promises');
     const { join } = await import('path');
     const schemaSql = await readFile(join(process.cwd(), 'supabase-schema.sql'), 'utf-8');

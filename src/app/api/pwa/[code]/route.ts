@@ -6,6 +6,9 @@ import { toCamelCase } from '@/lib/supabase-helpers';
 // PWA Customer Lookup - Public (no auth required)
 // GET /api/pwa/[code] — Customer accesses their PWA page
 // Returns: customer info + cashback balance + total referrals count
+//
+// NOTE: Customer codes are sequential (CUST0001, CUST0002...) and could be enumerated.
+// Consider migrating to UUID-based codes for better security.
 // =====================================================================
 
 export async function GET(

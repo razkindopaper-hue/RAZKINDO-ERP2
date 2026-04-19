@@ -96,6 +96,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Transaksi tidak ditemukan' }, { status: 404 });
       }
 
+      if (transaction.type !== 'sale') {
+        return NextResponse.json({ error: 'Piutang hanya bisa dibuat untuk transaksi penjualan' }, { status: 400 });
+      }
+
       const insertData = toSnakeCase({
         id: generateId(), transactionId: data.transactionId,
         customerName: transaction.customer?.name || 'Walk-in',

@@ -46,18 +46,20 @@ export async function POST(request: NextRequest) {
 
     const data = await request.json();
 
-    if (!data.creditorName || !data.totalAmount) {
-      return NextResponse.json(
-        { error: 'Nama kreditor dan jumlah hutang wajib diisi' },
-        { status: 400 }
-      );
+    if (!data.creditorName || typeof data.creditorName !== 'string' || data.creditorName.length > 200) {
+      return NextResponse.json({ error: 'Nama kreditor tidak valid' }, { status: 400 });
     }
-
-    if (typeof data.totalAmount !== 'number' || data.totalAmount <= 0) {
-      return NextResponse.json(
-        { error: 'Jumlah hutang harus berupa angka positif' },
-        { status: 400 }
-      );
+    if (!data.totalAmount || typeof data.totalAmount !== 'number' || isNaN(data.totalAmount) || data.totalAmount <= 0) {
+      return NextResponse.json({ error: 'Jumlah tidak valid' }, { status: 400 });
+    }
+    if (data.totalAmount > 999_999_999_999) {
+      return NextResponse.json({ error: 'Jumlah terlalu besar' }, { status: 400 });
+    }
+    if (data.dueDate) {
+      const dueDate = new Date(data.dueDate);
+      if (isNaN(dueDate.getTime())) {
+        return NextResponse.json({ error: 'Tanggal jatuh tempo tidak valid' }, { status: 400 });
+      }
     }
 
     const insertData = toSnakeCase({

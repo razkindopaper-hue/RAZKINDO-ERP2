@@ -7,6 +7,20 @@ import { atomicUpdateBalance, atomicUpdatePoolBalance } from '@/lib/atomic-ops';
 
 const CANCEL_MIN_BALANCE = -999999999999999;
 
+// BUG-7 FIX: Compensation log for manual recovery when cancel steps fail mid-way.
+// Since this uses Supabase REST client (not Prisma directly), we cannot wrap
+// in a real DB transaction. Instead, we track which steps have completed and
+// log inconsistencies for manual review if a later step fails.
+type CancelStepName = 'stock_restore' | 'receivable_cancel' | 'payment_reverse' | 'pool_reverse' | 'courier_cash_reverse' | 'payment_delete' | 'customer_stats_reverse' | 'cashback_reverse' | 'transaction_update';
+interface CancelCompensationRecord {
+  transactionId: string;
+  invoiceNo: string;
+  completedSteps: CancelStepName[];
+  failedStep: string | null;
+  error: string;
+  timestamp: string;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -40,7 +54,30 @@ export async function POST(
       );
     }
 
-    // Sequential operations (no transactions in Supabase JS)
+    // BUG-7 FIX: Track completed steps for compensation logging.
+    // Since Supabase REST client doesn't support DB transactions,
+    // we log each completed step. If a later step fails, we record
+    // which steps completed so manual recovery is possible.
+    const completedSteps: CancelStepName[] = [];
+    let compensationLog: CancelCompensationRecord | null = null;
+
+    function recordCompensationFailure(stepName: string, error: string) {
+      compensationLog = {
+        transactionId: id,
+        invoiceNo: txCamel.invoiceNo || id,
+        completedSteps: [...completedSteps],
+        failedStep: stepName,
+        error,
+        timestamp: new Date().toISOString(),
+      };
+      console.error(
+        `[CANCEL][COMPENSATION] Transaction ${txCamel.invoiceNo}: step "${stepName}" failed. ` +
+        `Completed steps: [${completedSteps.join(', ')}]. ` +
+        `Manual review may be required. Error: ${error}`
+      );
+    }
+
+    // Sequential operations (no DB transactions via Supabase REST — compensation logging used instead)
     if (txCamel.status === 'approved' || txCamel.status === 'paid') {
       // Get transaction items
       const { data: items } = await db
@@ -57,6 +94,7 @@ export async function POST(
         .in('id', allItemProductIds);
       const cancelProductLookup = new Map((cancelProductsBatch || []).map((p: any) => [p.id, p]));
 
+      try {
       for (const item of (items || [])) {
         const itemCamel = toCamelCase(item);
         const stockQty = itemCamel.qtyInSubUnit ?? itemCamel.qty;
@@ -180,8 +218,14 @@ export async function POST(
           }
         }
       }
+      completedSteps.push('stock_restore');
+      } catch (stepErr) {
+        recordCompensationFailure('stock_restore', stepErr instanceof Error ? stepErr.message : String(stepErr));
+        throw stepErr;
+      }
 
       // Cancel linked receivable
+      try {
       const { data: receivable } = await db
         .from('receivables')
         .select('*')
@@ -193,6 +237,11 @@ export async function POST(
           .update({ status: 'cancelled' })
           .eq('id', receivable.id);
       }
+      completedSteps.push('receivable_cancel');
+      } catch (stepErr) {
+        recordCompensationFailure('receivable_cancel', stepErr instanceof Error ? stepErr.message : String(stepErr));
+        throw stepErr;
+      }
 
       // Reverse all financial balances from linked payments
       const { data: payments } = await db
@@ -200,6 +249,7 @@ export async function POST(
         .select('*')
         .eq('transaction_id', id);
 
+      try {
       for (const payment of (payments || [])) {
         // Sale: money was credited → decrement to reverse
         // Purchase: money was debited → increment to reverse
@@ -216,12 +266,14 @@ export async function POST(
           } catch { /* best effort on cancellation rollback */ }
         }
       }
+      completedSteps.push('payment_reverse');
+      } catch (stepErr) {
+        recordCompensationFailure('payment_reverse', stepErr instanceof Error ? stepErr.message : String(stepErr));
+        throw stepErr;
+      }
 
       // Reverse pool balances from payments (only for sale transactions)
-      // POOL BALANCE FIX: Only reverse pool balances for payments that actually went to
-      // brankas/bank (cash_box_id or bank_account_id is set). Payments from courier cash
-      // collection don't have pool balance entries to reverse, since pool balances are
-      // updated at handover time (when money enters brankas), not at collection time.
+      try {
       if (txCamel.type === 'sale') {
         let totalHppToReverse = 0;
         let totalProfitToReverse = 0;
@@ -245,9 +297,14 @@ export async function POST(
           } catch { /* best effort on cancellation rollback */ }
         }
       }
+      completedSteps.push('pool_reverse');
+      } catch (stepErr) {
+        recordCompensationFailure('pool_reverse', stepErr instanceof Error ? stepErr.message : String(stepErr));
+        throw stepErr;
+      }
 
       // Reverse CourierCash if this was a cash delivery
-      // Also reverse hppPending/profitPending since the collected cash is being cancelled
+      try {
       if (txCamel.deliveredAt && txCamel.courierId && txCamel.paymentMethod === 'cash' && txCamel.type === 'sale') {
         const { data: courierCash } = await db
           .from('courier_cash')
@@ -281,14 +338,26 @@ export async function POST(
             .eq('id', courierCash.id);
         }
       }
+      completedSteps.push('courier_cash_reverse');
+      } catch (stepErr) {
+        recordCompensationFailure('courier_cash_reverse', stepErr instanceof Error ? stepErr.message : String(stepErr));
+        throw stepErr;
+      }
 
       // Delete all payment records
+      try {
       await db
         .from('payments')
         .delete()
         .eq('transaction_id', id);
+      completedSteps.push('payment_delete');
+      } catch (stepErr) {
+        recordCompensationFailure('payment_delete', stepErr instanceof Error ? stepErr.message : String(stepErr));
+        throw stepErr;
+      }
 
       // Reverse customer stats for sale transactions
+      try {
       if (txCamel.customerId && txCamel.type === 'sale') {
         const { data: customer } = await db
           .from('customers')
@@ -347,6 +416,12 @@ export async function POST(
         } catch (cbReverseErr) {
           console.error('[CANCEL] Failed to reverse cashback (non-blocking):', cbReverseErr);
         }
+      }
+      completedSteps.push('customer_stats_reverse');
+      completedSteps.push('cashback_reverse');
+      } catch (stepErr) {
+        recordCompensationFailure('customer_stats_reverse', stepErr instanceof Error ? stepErr.message : String(stepErr));
+        throw stepErr;
       }
     } else {
       // Pending transactions — cancel linked receivable
@@ -421,7 +496,6 @@ export async function POST(
     return NextResponse.json({ transaction: toCamelCase(updatedTransaction) });
   } catch (error) {
     console.error('Cancel transaction error:', error);
-    const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }

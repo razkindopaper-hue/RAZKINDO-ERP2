@@ -497,100 +497,109 @@ const rpcHandlers: Record<string, RpcFunction> = {
   // (for updating an existing handover's status), but the API route sends:
   // { p_courier_id, p_unit_id, p_amount, p_processed_by_id, p_notes }
   // to CREATE a new handover atomically (deduct courier cash → credit brankas → create records).
+  //
+  // BUG-28 FIX: Wrapped Steps 1-7 in prisma.$transaction with Serializable isolation level.
+  // Previously these were 7 sequential Prisma operations without transaction wrapping,
+  // meaning a failure after Step 3 (e.g., cash_box create fails) would leave the system
+  // in an inconsistent state (courier cash deducted but brankas not credited).
   async process_courier_handover(params) {
-    const { p_courier_id, p_unit_id, p_amount, p_processed_by_id, p_notes } = params;
+    const { p_courier_id, p_unit_id, p_amount, p_processed_by_id, p_notes,
+            p_hpp_portion, p_profit_portion } = params;
     try {
-      // Step 1: Get or create courier_cash record
-      const courierCash = await prisma.courierCash.upsert({
-        where: { courierId_unitId: { courierId: p_courier_id, unitId: p_unit_id } },
-        create: {
-          id: generateId(),
-          courierId: p_courier_id,
-          unitId: p_unit_id,
-          balance: 0,
-          totalCollected: 0,
-          totalHandover: 0,
-        },
-        update: {},
-      });
+      const handoverId = generateId();
+      const financeRequestId = generateId();
 
-      // Step 2: Validate sufficient balance
-      if ((courierCash.balance || 0) < p_amount) {
-        return {
-          data: null,
-          error: { message: `Saldo cash kurir tidak cukup. Saldo: ${courierCash.balance}, Diminta: ${p_amount}`, code: 'PGRST116' },
-        };
-      }
-
-      // Step 3: Deduct from courier cash balance
-      const updatedCourierCash = await prisma.courierCash.update({
-        where: { id: courierCash.id },
-        data: {
-          balance: { decrement: p_amount },
-          totalHandover: { increment: p_amount },
-        },
-      });
-
-      // Step 4: Get or create brankas (cash_box) for the unit
-      let cashBox = await prisma.cashBox.findFirst({
-        where: { unitId: p_unit_id, isActive: true },
-      });
-      if (!cashBox) {
-        cashBox = await prisma.cashBox.create({
-          data: {
+      // BUG-28 FIX: All steps wrapped in a single Serializable transaction
+      const results = await prisma.$transaction(async (tx) => {
+        // Step 1: Get or create courier_cash record
+        const courierCash = await tx.courierCash.upsert({
+          where: { courierId_unitId: { courierId: p_courier_id, unitId: p_unit_id } },
+          create: {
             id: generateId(),
-            name: 'Brankas Utama',
+            courierId: p_courier_id,
             unitId: p_unit_id,
             balance: 0,
-            isActive: true,
+            totalCollected: 0,
+            totalHandover: 0,
+          },
+          update: {},
+        });
+
+        // Step 2: Validate sufficient balance
+        if ((courierCash.balance || 0) < p_amount) {
+          throw new Error(`Saldo cash kurir tidak cukup. Saldo: ${courierCash.balance}, Diminta: ${p_amount}`);
+        }
+
+        // Step 3: Deduct from courier cash balance
+        const updatedCourierCash = await tx.courierCash.update({
+          where: { id: courierCash.id },
+          data: {
+            balance: { decrement: p_amount },
+            totalHandover: { increment: p_amount },
           },
         });
-      }
 
-      // Step 5: Credit brankas balance
-      const updatedCashBox = await prisma.cashBox.update({
-        where: { id: cashBox.id },
-        data: { balance: { increment: p_amount } },
-      });
+        // Step 4: Get or create brankas (cash_box) for the unit
+        let cashBox = await tx.cashBox.findFirst({
+          where: { unitId: p_unit_id, isActive: true },
+        });
+        if (!cashBox) {
+          cashBox = await tx.cashBox.create({
+            data: {
+              id: generateId(),
+              name: 'Brankas Utama',
+              unitId: p_unit_id,
+              balance: 0,
+              isActive: true,
+            },
+          });
+        }
 
-      // Step 6: Create finance_request (type: courier_deposit)
-      const financeRequestId = generateId();
-      await prisma.financeRequest.create({
-        data: {
-          id: financeRequestId,
-          type: 'courier_deposit',
-          amount: p_amount,
-          status: 'approved',
-          requestById: p_processed_by_id,
-          processedById: p_processed_by_id,
-          description: `Setoran kurir sebesar ${p_amount}${p_notes ? ` — ${p_notes}` : ''}`,
-          processedAt: new Date(),
-        },
-      });
+        // Step 5: Credit brankas balance
+        const updatedCashBox = await tx.cashBox.update({
+          where: { id: cashBox.id },
+          data: { balance: { increment: p_amount } },
+        });
 
-      // Step 7: Create courier_handover record
-      const handoverId = generateId();
-      await prisma.courierHandover.create({
-        data: {
-          id: handoverId,
-          courierCashId: courierCash.id,
-          amount: p_amount,
-          notes: p_notes || null,
-          status: 'processed',
-          financeRequestId: financeRequestId,
-          processedById: p_processed_by_id,
-          processedAt: new Date(),
-        },
-      });
+        // Step 6: Create finance_request (type: courier_deposit)
+        await tx.financeRequest.create({
+          data: {
+            id: financeRequestId,
+            type: 'courier_deposit',
+            amount: p_amount,
+            status: 'approved',
+            requestById: p_processed_by_id,
+            processedById: p_processed_by_id,
+            description: `Setoran kurir sebesar ${p_amount}${p_notes ? ` — ${p_notes}` : ''}`,
+            processedAt: new Date(),
+          },
+        });
+
+        // Step 7: Create courier_handover record
+        await tx.courierHandover.create({
+          data: {
+            id: handoverId,
+            courierCashId: courierCash.id,
+            amount: p_amount,
+            notes: p_notes || null,
+            status: 'processed',
+            financeRequestId: financeRequestId,
+            processedById: p_processed_by_id,
+            processedAt: new Date(),
+          },
+        });
+
+        return { updatedCourierCash, updatedCashBox, handoverId, financeRequestId, cashBox };
+      }, { isolationLevel: 'Serializable' });
 
       // Step 8: Return results matching expected shape
       return {
         data: {
-          handover_id: handoverId,
-          finance_request_id: financeRequestId,
-          cash_box_id: cashBox.id,
-          new_balance: updatedCourierCash.balance,
-          cash_box_balance: updatedCashBox.balance,
+          handover_id: results.handoverId,
+          finance_request_id: results.financeRequestId,
+          cash_box_id: results.cashBox.id,
+          new_balance: results.updatedCourierCash.balance,
+          cash_box_balance: results.updatedCashBox.balance,
         },
         error: null,
       };

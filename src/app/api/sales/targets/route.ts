@@ -101,6 +101,13 @@ export async function POST(request: NextRequest) {
     const authUserId = await verifyAuthUser(request.headers.get('authorization'));
     if (!authUserId) return NextResponse.json({ error: 'Akses ditolak' }, { status: 401 });
 
+    // BUG-15 FIX: Only super_admin can create sales targets
+    const { data: authUserData } = await db.from('users').select('id, role').eq('id', authUserId).single();
+    if (!authUserData) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (authUserData.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Hanya super admin yang dapat membuat target' }, { status: 403 });
+    }
+
     const data = await request.json();
     const { userId, period, year, month, quarter, targetAmount, notes } = data;
 

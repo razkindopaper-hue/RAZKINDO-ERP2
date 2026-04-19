@@ -237,10 +237,6 @@ export async function POST(
     });
   } catch (error) {
     console.error('Approve transaction error:', error);
-    const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
-    let status = 500;
-    if (message.includes('tidak ditemukan')) status = 404;
-    else if (message.includes('tidak cukup') || message.includes('sudah diproses') || message.includes('constraint') || message.includes('non_negative') || message.includes('Stok') || message.includes('stok') || message.includes('Invalid') || message.includes('missing')) status = 400;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }

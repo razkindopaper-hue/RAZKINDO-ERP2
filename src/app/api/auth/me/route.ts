@@ -43,7 +43,8 @@ export async function GET(request: NextRequest) {
         // Fallback: if no user_units entries but user has unit_id, use that
         userUnits = [userCamel.unit];
       }
-    } catch {
+    } catch (err) {
+      console.warn('[Auth/me] user_units fetch failed:', err);
       // user_units table may not exist — fallback to single unit
       if (userCamel.unit) {
         userUnits = [userCamel.unit];

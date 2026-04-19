@@ -3,6 +3,20 @@ import { db } from '@/lib/supabase';
 import { toCamelCase, createLog } from '@/lib/supabase-helpers';
 import { verifyAndGetAuthUser } from '@/lib/token';
 import { wsCustomerUpdate } from '@/lib/ws-dispatch';
+import { z } from 'zod';
+
+// BUG-11 FIX: Zod schema for PATCH validation
+const customerPatchSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  phone: z.string().max(20).optional().nullable(),
+  address: z.string().max(500).optional().nullable(),
+  distance: z.enum(['near', 'far']).optional(),
+  assignedToId: z.string().optional().nullable(),
+  status: z.enum(['active', 'inactive', 'lost']).optional(),
+  cashbackValue: z.number().min(0).max(100).optional(),
+  cashbackType: z.enum(['percentage', 'fixed']).optional(),
+  notes: z.string().max(1000).optional().nullable(),
+});
 
 export async function PATCH(
   request: NextRequest,
@@ -21,6 +35,17 @@ export async function PATCH(
     const { user: authUser } = result;
     const { id } = await params;
     const data = await request.json();
+
+    // BUG-11 FIX: Validate PATCH body with Zod
+    const parseResult = customerPatchSchema.safeParse(data);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0];
+      return NextResponse.json(
+        { error: `Validasi gagal: ${firstError.message}` },
+        { status: 400 }
+      );
+    }
+    const validatedData = parseResult.data;
 
     const { data: existing } = await db
       .from('customers')

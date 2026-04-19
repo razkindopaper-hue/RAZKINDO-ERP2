@@ -26,6 +26,16 @@ export async function GET(request: NextRequest) {
     if (startDate) dateFilter['start'] = startDate;
     if (endDate) dateFilter['end'] = endDate;
 
+    // BUG-13 FIX: Validate date range — maximum 90 days to prevent loading entire DB
+    if (dateFilter.start && dateFilter.end) {
+      const rangeStart = new Date(dateFilter.start);
+      const rangeEnd = new Date(dateFilter.end);
+      const maxDays = 90;
+      if ((rangeEnd.getTime() - rangeStart.getTime()) > maxDays * 24 * 60 * 60 * 1000) {
+        return NextResponse.json({ error: `Rentang tanggal maksimal ${maxDays} hari` }, { status: 400 });
+      }
+    }
+
     // Fetch all money movements in parallel
     const [
       paymentsResult,
@@ -55,7 +65,8 @@ export async function GET(request: NextRequest) {
           .select('amount, transaction:transactions!transaction_id(type)')
           .eq('transaction:type', 'sale');
         if (dateFilter.start) q = q.gte('created_at', dateFilter.start);
-        if (dateFilter.end) q = q.lte('created_at', dateFilter.end + 'T23:59:59');
+        const endStr1 = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+        if (dateFilter.end) q = q.lte('created_at', endStr1);
         return q.then(({ data }) => (data || []).reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0));
       })(),
       // Outflow: Sum of processed finance_requests (pay_now) + processed cashback_withdrawals
@@ -66,7 +77,8 @@ export async function GET(request: NextRequest) {
             .eq('status', 'processed')
             .eq('payment_type', 'pay_now');
           if (dateFilter.start) q = q.gte('processed_at', dateFilter.start);
-          if (dateFilter.end) q = q.lte('processed_at', dateFilter.end + 'T23:59:59');
+          const endStr2 = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+          if (dateFilter.end) q = q.lte('processed_at', endStr2);
           return q.then(({ data }) => (data || []).reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0));
         })(),
         (() => {
@@ -74,7 +86,8 @@ export async function GET(request: NextRequest) {
             .select('amount')
             .eq('status', 'processed');
           if (dateFilter.start) q = q.gte('created_at', dateFilter.start);
-          if (dateFilter.end) q = q.lte('created_at', dateFilter.end + 'T23:59:59');
+          const endStr3 = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+          if (dateFilter.end) q = q.lte('created_at', endStr3);
           return q.then(({ data }) => (data || []).reduce((sum: number, w: any) => sum + (Number(w.amount) || 0), 0));
         })(),
       ]).then(([reqTotal, cbTotal]) => reqTotal + cbTotal),
@@ -85,7 +98,8 @@ export async function GET(request: NextRequest) {
             .select('amount')
             .eq('status', 'processed');
           if (dateFilter.start) q = q.gte('created_at', dateFilter.start);
-          if (dateFilter.end) q = q.lte('created_at', dateFilter.end + 'T23:59:59');
+          const endStr4 = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+          if (dateFilter.end) q = q.lte('created_at', endStr4);
           return q.then(({ data }) => (data || []).reduce((sum: number, h: any) => sum + (Number(h.amount) || 0), 0));
         })(),
         (() => {
@@ -93,7 +107,8 @@ export async function GET(request: NextRequest) {
             .select('amount')
             .eq('status', 'completed');
           if (dateFilter.start) q = q.gte('created_at', dateFilter.start);
-          if (dateFilter.end) q = q.lte('created_at', dateFilter.end + 'T23:59:59');
+          const endStr5 = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+          if (dateFilter.end) q = q.lte('created_at', endStr5);
           return q.then(({ data }) => (data || []).reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0));
         })(),
       ]).then(([hoTotal, ftTotal]) => hoTotal + ftTotal),
@@ -198,10 +213,13 @@ async function fetchPayments(dateFilter: Record<string, string>): Promise<CashFl
       bank_account:bank_accounts(id, name, bank_name)
     `)
     .order('created_at', { ascending: false })
-    .limit(500);
+    .limit(100);
 
   if (dateFilter.start) query = query.gte('created_at', dateFilter.start);
-  if (dateFilter.end) query = query.lte('created_at', dateFilter.end + 'T23:59:59');
+  if (dateFilter.end) {
+    const endStr = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+    query = query.lte('created_at', endStr);
+  }
 
   const { data } = await query;
   if (!data) return [];
@@ -297,10 +315,13 @@ async function fetchProcessedRequests(dateFilter: Record<string, string>): Promi
     .eq('status', 'processed')
     .eq('payment_type', 'pay_now')
     .order('processed_at', { ascending: false })
-    .limit(500);
+    .limit(100);
 
   if (dateFilter.start) query = query.gte('processed_at', dateFilter.start);
-  if (dateFilter.end) query = query.lte('processed_at', dateFilter.end + 'T23:59:59');
+  if (dateFilter.end) {
+    const endStr = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+    query = query.lte('processed_at', endStr);
+  }
 
   const { data } = await query;
   if (!data) return [];
@@ -380,10 +401,13 @@ async function fetchCourierHandovers(dateFilter: Record<string, string>): Promis
     `)
     .eq('status', 'processed')
     .order('created_at', { ascending: false })
-    .limit(500);
+    .limit(100);
 
   if (dateFilter.start) query = query.gte('created_at', dateFilter.start);
-  if (dateFilter.end) query = query.lte('created_at', dateFilter.end + 'T23:59:59');
+  if (dateFilter.end) {
+    const endStr = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+    query = query.lte('created_at', endStr);
+  }
 
   const { data } = await query;
   if (!data) return [];
@@ -445,10 +469,13 @@ async function fetchFundTransfers(dateFilter: Record<string, string>): Promise<C
     `)
     .eq('status', 'completed')
     .order('created_at', { ascending: false })
-    .limit(500);
+    .limit(100);
 
   if (dateFilter.start) query = query.gte('created_at', dateFilter.start);
-  if (dateFilter.end) query = query.lte('created_at', dateFilter.end + 'T23:59:59');
+  if (dateFilter.end) {
+    const endStr = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+    query = query.lte('created_at', endStr);
+  }
 
   const { data } = await query;
   if (!data) return [];
@@ -491,7 +518,10 @@ async function fetchCashbackWithdrawals(dateFilter: Record<string, string>): Pro
     .limit(200);
 
   if (dateFilter.start) query = query.gte('created_at', dateFilter.start);
-  if (dateFilter.end) query = query.lte('created_at', dateFilter.end + 'T23:59:59');
+  if (dateFilter.end) {
+    const endStr = dateFilter.end.includes('T') ? dateFilter.end : dateFilter.end + 'T23:59:59';
+    query = query.lte('created_at', endStr);
+  }
 
   const { data } = await query;
   if (!data) return [];

@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
         if (unitId) query = query.eq('unit_id', unitId);
         if (startDate) query = query.gte('transaction_date', new Date(startDate).toISOString());
         if (endDate) query = query.lte('transaction_date', new Date(endDate).toISOString());
-        const { data: allUserTx } = await query;
+        const { data: allUserTx } = await query.limit(500);
 
         const userTxMap = new Map<string, { totalSales: number; totalProfit: number; count: number }>();
         for (const t of (allUserTx || [])) {

@@ -55,37 +55,28 @@ export async function POST(
       return NextResponse.json({ error: 'Anda sudah memiliki pencairan yang sedang diproses. Harap tunggu.' }, { status: 429 });
     }
 
-    const balance = customer.cashback_balance || 0;
+    // BUG-4 FIX: Remove pre-check balance validation to prevent race condition.
+    // The balance check and deduction must be atomic — we rely solely on the
+    // RPC atomic_deduct_cashback which checks balance internally.
+    // Pre-checking balance here creates a TOCTOU race: two concurrent requests
+    // can both pass the check, then both deduct, resulting in negative balance.
 
-    if (data.amount > balance) {
-      return NextResponse.json({ error: `Saldo cashback tidak mencukupi. Saldo: Rp${balance.toLocaleString('id-ID')}` }, { status: 400 });
-    }
+    const balance = customer.cashback_balance || 0;
 
     // Create withdrawal
     const withdrawalId = generateId();
-    const balanceAfter = balance - data.amount;
 
     // Deduct from customer balance using atomic RPC (prevents race condition)
-    try {
-      const { error: rpcError } = await db.rpc('atomic_deduct_cashback', {
-        p_customer_id: customer.id,
-        p_amount: data.amount,
-      });
-      if (rpcError) {
-        // RPC may not exist — fallback to read-then-write
-        await db
-          .from('customers')
-          .update({ cashback_balance: balanceAfter })
-          .eq('id', customer.id)
-          .gt('cashback_balance', data.amount - 1); // optimistic guard
-      }
-    } catch {
-      await db
-        .from('customers')
-        .update({ cashback_balance: balanceAfter })
-        .eq('id', customer.id)
-        .gt('cashback_balance', data.amount - 1);
+    // The RPC handles balance check + deduction in a single Prisma operation.
+    const { data: rpcResult, error: rpcError } = await db.rpc('atomic_deduct_cashback', {
+      p_customer_id: customer.id,
+      p_delta: data.amount,
+    });
+    if (rpcError || rpcResult === null) {
+      return NextResponse.json({ error: 'Saldo cashback tidak mencukupi' }, { status: 400 });
     }
+
+    const balanceAfter = Number(rpcResult) || 0;
 
     // Create withdrawal record
     const { data: withdrawal, error: wdError } = await db

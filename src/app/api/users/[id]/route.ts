@@ -197,7 +197,7 @@ export async function PATCH(
       if (uuData) {
         userUnits = rowsToCamelCase(uuData).map((uu: any) => uu.unit);
       }
-    } catch {}
+    } catch (err) { console.warn('[Users] user_units fetch failed:', err); }
 
     const { password: _, ...userWithoutPassword } = userCamel!;
 

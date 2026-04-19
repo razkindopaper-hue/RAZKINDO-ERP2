@@ -109,7 +109,7 @@ export async function GET(
         console.error('[PAYMENT-DEBUG] Prisma fallback also failed:', prismaErr);
       }
       return NextResponse.json(
-        { error: 'Transaksi tidak ditemukan', debug: error?.message || 'no error object' },
+        { error: 'Transaksi tidak ditemukan' },
         { status: 404 }
       );
     }

@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/supabase';
 import { toCamelCase, toSnakeCase, generateId, createEvent, createLog } from '@/lib/supabase-helpers';
 import { verifyAuthUser } from '@/lib/token';
+import { z } from 'zod';
+
+// BUG-10 FIX: Zod schema for PATCH validation
+const productPatchSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).optional().nullable(),
+  sellingPrice: z.number().min(0).optional(),
+  avgHpp: z.number().min(0).optional(),
+  stockType: z.enum(['centralized', 'per_unit']).optional(),
+  conversionRate: z.number().positive().optional(),
+  unit: z.string().max(50).optional(),
+  subUnit: z.string().max(50).optional(),
+  minStock: z.number().min(0).optional(),
+  isActive: z.boolean().optional(),
+  trackStock: z.boolean().optional(),
+  imageUrl: z.string().max(1000).optional().nullable(),
+});
 
 export async function GET(
   request: NextRequest,
@@ -75,6 +92,17 @@ export async function PATCH(
 
     const { id } = await params;
     const data = await request.json();
+
+    // BUG-10 FIX: Validate PATCH body with Zod
+    const parseResult = productPatchSchema.safeParse(data);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0];
+      return NextResponse.json(
+        { error: `Validasi gagal: ${firstError.message}` },
+        { status: 400 }
+      );
+    }
+    const validatedData = parseResult.data;
 
     // Check existence first
     const { data: existing } = await db

@@ -41,8 +41,13 @@ export async function POST(request: NextRequest) {
     if (!VALID_TYPES.includes(data.type)) {
       return NextResponse.json({ error: 'Tipe transfer tidak valid' }, { status: 400 });
     }
-    if (!data.amount || data.amount <= 0) {
+    if (!data.amount || typeof data.amount !== 'number' || isNaN(data.amount) || data.amount <= 0) {
       return NextResponse.json({ error: 'Jumlah transfer harus lebih dari 0' }, { status: 400 });
+    }
+
+    // BUG-12 FIX: Add upper bound validation to prevent absurdly large transfers
+    if (data.amount > 999_999_999_999) {
+      return NextResponse.json({ error: 'Jumlah transfer terlalu besar' }, { status: 400 });
     }
 
     let fromBankAccountId: string | null = null;

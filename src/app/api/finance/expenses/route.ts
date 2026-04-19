@@ -58,8 +58,14 @@ export async function POST(request: NextRequest) {
       notes,
     } = body;
 
-    if (!description || !amount || amount <= 0) {
-      return NextResponse.json({ error: 'Deskripsi dan jumlah wajib diisi' }, { status: 400 });
+    if (!amount || typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
+      return NextResponse.json({ error: 'Jumlah tidak valid' }, { status: 400 });
+    }
+    if (!description || typeof description !== 'string' || description.trim().length === 0) {
+      return NextResponse.json({ error: 'Deskripsi wajib diisi' }, { status: 400 });
+    }
+    if (description.length > 500) {
+      return NextResponse.json({ error: 'Deskripsi terlalu panjang (maks 500 karakter)' }, { status: 400 });
     }
 
     // Resolve sourceType and sourceId from bankAccountId/cashBoxId

@@ -16,8 +16,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // BUG-16 FIX: Require role check and transactionId for non-super_admin
+    const { data: authUserData } = await db.from('users').select('id, role').eq('id', userId).single();
+    if (!authUserData) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { searchParams } = new URL(request.url);
     const transactionId = searchParams.get('transactionId');
+
+    if (!transactionId && authUserData.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 });
+    }
 
     let query = db
       .from('payments')
@@ -410,24 +418,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ payment: toCamelCase(payment) });
   } catch (error) {
     console.error('Create payment error:', error);
-    const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
-    const isClientError = error instanceof Error && (
-      error.message.includes('tidak ditemukan') ||
-      error.message.includes('melebihi') ||
-      error.message.includes('belum disetujui') ||
-      error.message.includes('dibatalkan') ||
-      error.message.includes('wajib') ||
-      error.message.includes('non_negative') ||
-      error.message.includes('constraint') ||
-      error.message.includes('Stok') ||
-      error.message.includes('stok') ||
-      error.message.includes('Saldo tidak mencukupi') ||
-      error.message.includes('sudah lunas') ||
-      error.message.includes('tidak aktif') ||
-      error.message.includes('pool tidak mencukupi')
-    );
-    const status = error instanceof Error && error.message.includes('tidak ditemukan') ? 404 :
-          isClientError ? 400 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }

@@ -180,8 +180,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ transactions: transactionsCamel });
   } catch (error) {
     console.error('Get transactions error:', error);
-    const message = error instanceof Error ? error.message : 'Terjadi kesalahan server';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 });
   }
 }
 
@@ -1074,6 +1073,6 @@ export async function POST(request: NextRequest) {
     if (message.includes('tidak ditemukan')) status = 404;
     else if (message.includes('tidak cukup') || message.includes('wajib') || message.includes('tidak memiliki') || message.includes('Invalid') || message.includes('missing')) status = 400;
     else if (message.includes('Terlalu banyak')) status = 429;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status });
   }
 }

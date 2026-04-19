@@ -22,6 +22,20 @@ const COMPRESSIBLE_TYPES = new Set([
 ]);
 const VIDEO_TYPES = new Set(['video/mp4', 'video/3gp', 'video/quicktime', 'video/webm']);
 
+// BUG-5 FIX: In-memory rate limiter for upload endpoint (by IP)
+const uploadRateLimit = new Map<string, { count: number; resetAt: number }>();
+function checkUploadRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = uploadRateLimit.get(ip);
+  if (!entry || now > entry.resetAt) {
+    uploadRateLimit.set(ip, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 5) return false;
+  entry.count++;
+  return true;
+}
+
 /**
  * Compress an image buffer using sharp.
  * Converts to WebP for max compression while keeping preview clear.
@@ -90,6 +104,15 @@ export async function POST(
 ) {
   try {
     const { invoiceNo } = await params;
+
+    // BUG-5 FIX: Rate limit by IP
+    const clientIp = request.headers.get('x-forwarded-for') || 'unknown';
+    if (!checkUploadRateLimit(clientIp)) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak upload dalam waktu singkat. Coba lagi dalam 1 menit.' },
+        { status: 429 }
+      );
+    }
 
     // Parse FormData
     const formData = await request.formData();

@@ -24,6 +24,7 @@ export async function GET(
       .from('customers')
       .select('id, name, phone, address, code')
       .eq('code', code.trim().toUpperCase())
+      .eq('status', 'active')
       .single();
 
     if (!customer) {

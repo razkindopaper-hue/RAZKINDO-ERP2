@@ -142,6 +142,20 @@ export async function POST(
       }
     }
 
+    // Validate product IDs exist
+    const productIds = data.items.map((i: any) => i.productId).filter(Boolean);
+    if (productIds.length > 0) {
+      const { data: existingProducts } = await db
+        .from('products')
+        .select('id')
+        .in('id', productIds);
+      const existingIds = new Set((existingProducts || []).map((p: any) => p.id));
+      const invalidIds = productIds.filter(id => !existingIds.has(id));
+      if (invalidIds.length > 0) {
+        return NextResponse.json({ error: 'Beberapa produk tidak ditemukan' }, { status: 400 });
+      }
+    }
+
     // Payment method: default 'tempo' — sales/admin will set the actual method when approving
     const paymentMethod = 'tempo';
 
