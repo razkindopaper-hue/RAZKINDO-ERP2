@@ -1,5 +1,5 @@
 # =====================================================================
-# Razkindo2 ERP - Docker Compose for CasaOS
+# Razkindo2 ERP - Docker Compose
 # =====================================================================
 # Usage:
 #   1. Copy .env from template (install script does this automatically)
@@ -12,14 +12,38 @@
 # =====================================================================
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: razkindo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: erp_user
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: erp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp_user -d erp_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - razkindo_net
+
+  # ERP Application
   razkindo-erp:
     build: .
     image: razkindo2-erp:latest
     container_name: razkindo2-erp
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8180:3000"   # Single port: Proxy routes HTTP→Next.js + WebSocket→Event Queue
-      # Port 8181 no longer needed — WebSocket now shares port 8180 via proxy
     env_file:
       - .env
     environment:
@@ -28,12 +52,12 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=768
+      # Override DATABASE_URL to use Docker's PostgreSQL service
+      - DATABASE_URL=postgresql://erp_user:123456@postgres:5432/erp_db?connection_limit=10&pool_timeout=15
+      - DIRECT_URL=postgresql://erp_user:123456@postgres:5432/erp_db
       # Override Ollama host to access host machine (MacBook)
-      # Inside Docker, localhost = container, host.docker.internal = MacBook
       - OLLAMA_HOST=http://host.docker.internal:11434
-      # CORS origins for WebSocket — allow Cloudflare tunnel domain
-      # For quick tunnel: CORS_ORIGINS=*
-      # For named tunnel: CORS_ORIGINS=https://razkindo.biz.id
+      # CORS origins for WebSocket
       - CORS_ORIGINS=https://razkindo.biz.id
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -51,6 +75,8 @@ services:
 
 volumes:
   razkindo_data:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:

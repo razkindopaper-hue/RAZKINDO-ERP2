@@ -1,7 +1,7 @@
 #!/bin/sh
 # =====================================================================
 # Razkindo2 ERP - Docker Entrypoint
-# Starts Event Queue, Next.js, and Single-Port Reverse Proxy
+# Starts Prisma migrations, Event Queue, Next.js, and Reverse Proxy
 #
 # Architecture:
 #   Port 3000 (Proxy) → /socket.io/* → Event Queue (port 3004)
@@ -13,6 +13,20 @@
 echo "============================================"
 echo " Razkindo2 ERP - Starting Services"
 echo "============================================"
+
+# ---- Run Prisma migrations ----
+echo "[Entrypoint] Running Prisma schema push..."
+cd /app
+npx prisma db push --accept-data-loss 2>&1 || {
+  echo "[Entrypoint] WARNING: Prisma db push failed, retrying in 5s..."
+  sleep 5
+  npx prisma db push --accept-data-loss 2>&1 || {
+    echo "[Entrypoint] ERROR: Prisma db push failed. Trying generate first..."
+    npx prisma generate
+    npx prisma db push --accept-data-loss 2>&1
+  }
+}
+echo "[Entrypoint] Prisma schema push completed."
 
 # ---- Start Event Queue Service (background) ----
 echo "[Entrypoint] Starting Event Queue on port 3004..."
