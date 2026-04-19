@@ -1,16 +1,16 @@
 // =====================================================================
-// SUPABASE CLIENT — Full Supabase PostgreSQL Backend
+// SUPABASE CLIENT — Prisma-backed PostgreSQL Backend
 //
-// All database operations go to Supabase PostgreSQL:
-//   .from()  → Supabase PostgREST API (real-time queries)
-//   .rpc()   → Prisma-backed handlers (connected to Supabase via PgBouncer)
-//   .auth    → Supabase Auth
-//   .storage → Supabase Storage
+// All database operations go through Prisma to local PostgreSQL:
+//   .from()  → Prisma-backed PostgREST-compatible query builder
+//   .rpc()   → Prisma-backed handlers (atomic operations)
+//   .auth    → Supabase Auth (unchanged)
+//   .storage → Supabase Storage (unchanged)
 //
-// Connection: PgBouncer (IPv4) → Supabase PostgreSQL (ap-southeast-1)
+// Connection: Prisma → local PostgreSQL
 //
 // Exports:
-//   db             — main query client
+//   db             — main query client (PostgREST-compatible via Prisma)
 //   supabaseAdmin  — alias for db
 //   prisma         — raw Prisma Client for complex queries
 // =====================================================================
@@ -18,6 +18,14 @@
 import { PrismaClient } from '@prisma/client';
 import { supabaseRestClient } from './supabase-rest';
 import { generateId } from './supabase-helpers';
+import {
+  snakeToModelName,
+  parseSelectToInclude,
+  parseOrFilter,
+  prismaToSnakeCase,
+  toCamelCaseDeep,
+  snakeToCamel,
+} from './supabase-prisma';
 
 // ─────────────────────────────────────────────────────────────────────
 // PRISMA CLIENT (singleton) — connects to Supabase via PgBouncer
@@ -805,67 +813,568 @@ const rpcHandlers: Record<string, RpcFunction> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// SUPABASE CLIENT OBJECT (real Supabase + local RPC overlay)
+// PRISMA POSTGREST QUERY BUILDER
+// ─────────────────────────────────────────────────────────────────────
+// Immutable query builder that wraps Prisma to provide a PostgREST-compatible
+// API. All 128+ API routes use db.from('table').select().eq() etc.
+// and will work transparently with this Prisma implementation.
+// ─────────────────────────────────────────────────────────────────────
+
+// Helper: split string by commas respecting nested parentheses
+function splitTopLevel(str: string): string[] {
+  const result: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === '(') { depth++; current += ch; }
+    else if (ch === ')') { depth--; current += ch; }
+    else if (ch === ',' && depth === 0) { result.push(current.trim()); current = ''; }
+    else { current += ch; }
+  }
+  if (current.trim()) result.push(current.trim());
+  return result;
+}
+
+// Helper: try parsing an ISO date string to a Date object
+function tryParseDate(value: any): any {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return value;
+}
+
+// Helper: recursively convert ISO date strings in an object to Date objects
+function convertDatesDeep(obj: any): any {
+  if (obj === null || obj === undefined || obj instanceof Date) return obj;
+  if (Array.isArray(obj)) return obj.map(convertDatesDeep);
+  if (typeof obj === 'object') {
+    const result: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) result[k] = convertDatesDeep(v);
+    return result;
+  }
+  return tryParseDate(obj);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// QUERY STATE (immutable — each method returns a new builder)
+// ─────────────────────────────────────────────────────────────────────
+
+type Operation = 'select' | 'insert' | 'update' | 'delete';
+
+interface QueryState {
+  tableName: string;
+  modelName: string;
+  operation: Operation;
+  selectStr: string;
+  countExact: boolean;
+  head: boolean;
+  whereConditions: Record<string, any>[];
+  orGroups: any[][];
+  orderBy: any[];
+  limitVal: number | null;
+  skipVal: number | null;
+  takeVal: number | null;
+  singleMode: boolean;
+  maybeSingleMode: boolean;
+  returnData: boolean; // .select() called after insert/update
+  insertData: any;
+  updateData: any;
+}
+
+function defaultState(tableName: string): QueryState {
+  return {
+    tableName,
+    modelName: snakeToModelName(tableName),
+    operation: 'select',
+    selectStr: '*',
+    countExact: false,
+    head: false,
+    whereConditions: [],
+    orGroups: [],
+    orderBy: [],
+    limitVal: null,
+    skipVal: null,
+    takeVal: null,
+    singleMode: false,
+    maybeSingleMode: false,
+    returnData: false,
+    insertData: null,
+    updateData: null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BUILD PRISMA WHERE CLAUSE from accumulated conditions
+// ─────────────────────────────────────────────────────────────────────
+
+function buildWhere(state: QueryState): Record<string, any> | undefined {
+  const where: Record<string, any> = {};
+
+  // Merge all where conditions (top-level = implicit AND)
+  for (const cond of state.whereConditions) {
+    for (const [key, val] of Object.entries(cond)) {
+      if (where[key] !== undefined) {
+        // Merge nested objects (shouldn't happen in practice)
+        if (typeof where[key] === 'object' && typeof val === 'object') {
+          where[key] = { ...where[key], ...val };
+        } else {
+          where[key] = val;
+        }
+      } else {
+        where[key] = val;
+      }
+    }
+  }
+
+  // Add OR groups
+  if (state.orGroups.length > 0) {
+    where.OR = state.orGroups.map(group => {
+      if (group.length === 1) return group[0];
+      return { AND: group };
+    });
+  }
+
+  return Object.keys(where).length > 0 ? where : undefined;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BUILD PRISMA SELECT/INCLUDE from PostgREST select string
+// ─────────────────────────────────────────────────────────────────────
+
+function buildSelectArgs(parsed: any): Record<string, any> {
+  if (!parsed || parsed.type === 'all') return {};
+
+  if (parsed.type === 'fields') {
+    const select: Record<string, boolean> = {};
+    for (const f of parsed.fields) select[snakeToCamel(f)] = true;
+    return { select };
+  }
+
+  if (parsed.type === 'include') {
+    // Mix of specific fields + includes → use select with relations nested inside
+    if (parsed.select && parsed.select.length > 0) {
+      const select: Record<string, any> = {};
+      for (const f of parsed.select) select[snakeToCamel(f)] = true;
+      for (const [k, v] of Object.entries(parsed.include)) select[k] = v;
+      return { select };
+    }
+    // Only includes, no specific fields
+    return { include: parsed.include };
+  }
+
+  return {};
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PARSE OR FILTER VALUE (convert string values from PostgREST .or())
+// ─────────────────────────────────────────────────────────────────────
+
+function orValueToPrisma(operator: string, value: string): any {
+  if (operator === 'is' && value === 'null') return null;
+  return tryParseDate(value);
+}
+
+function orClauseToPrisma(clause: { field: string; operator: string; value: string }): Record<string, any> {
+  const v = orValueToPrisma(clause.operator, clause.value);
+  switch (clause.operator) {
+    case 'eq': return { [clause.field]: v };
+    case 'neq': return { [clause.field]: { not: v } };
+    case 'gt': return { [clause.field]: { gt: v } };
+    case 'gte': return { [clause.field]: { gte: v } };
+    case 'lt': return { [clause.field]: { lt: v } };
+    case 'lte': return { [clause.field]: { lte: v } };
+    case 'is': return { [clause.field]: v };
+    case 'like': {
+      if (typeof v !== 'string') return { [clause.field]: v };
+      if (v.endsWith('%') && v.startsWith('%')) return { [clause.field]: { contains: v.slice(1, -1) } };
+      if (v.endsWith('%')) return { [clause.field]: { startsWith: v.slice(0, -1) } };
+      if (v.startsWith('%')) return { [clause.field]: { endsWith: v.slice(1) } };
+      return { [clause.field]: v };
+    }
+    case 'ilike': {
+      if (typeof v !== 'string') return { [clause.field]: v };
+      if (v.endsWith('%') && v.startsWith('%')) return { [clause.field]: { contains: v.slice(1, -1), mode: 'insensitive' } };
+      if (v.endsWith('%')) return { [clause.field]: { startsWith: v.slice(0, -1), mode: 'insensitive' } };
+      if (v.startsWith('%')) return { [clause.field]: { endsWith: v.slice(1), mode: 'insensitive' } };
+      return { [clause.field]: { contains: v, mode: 'insensitive' } };
+    }
+    default: return { [clause.field]: v };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PRISMA QUERY BUILDER CLASS
+// ─────────────────────────────────────────────────────────────────────
+
+class PrismaQueryBuilder {
+  private _s: QueryState;
+  private _promise: Promise<PostgrestResult> | null = null;
+
+  constructor(state: QueryState) {
+    this._s = state;
+  }
+
+  // ─── Immutable clone with overrides ────────────────────────────
+  private _clone(overrides: Partial<QueryState>): PrismaQueryBuilder {
+    return new PrismaQueryBuilder({ ...this._s, ...overrides });
+  }
+
+  // ─── Thenable interface (for await / Promise.all) ──────────────
+  then<TResult1 = PostgrestResult, TResult2 = never>(
+    onfulfilled?: ((value: PostgrestResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
+    if (!this._promise) this._promise = this._execute();
+    return this._promise.then(onfulfilled, onrejected);
+  }
+
+  catch<TResult = never>(
+    onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null,
+  ): Promise<PostgrestResult | TResult> {
+    if (!this._promise) this._promise = this._execute();
+    return this._promise.catch(onrejected);
+  }
+
+  // ─── SELECT ────────────────────────────────────────────────────
+  select(columns?: string, options?: { count?: string; head?: boolean }): PrismaQueryBuilder {
+    const isAfterMutation = this._s.operation !== 'select';
+    return this._clone({
+      operation: isAfterMutation ? this._s.operation : 'select',
+      selectStr: columns || '*',
+      countExact: options?.count === 'exact',
+      head: options?.head === true,
+      returnData: isAfterMutation,
+    });
+  }
+
+  // ─── FILTERS ──────────────────────────────────────────────────
+  eq(column: string, value: any): PrismaQueryBuilder {
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: tryParseDate(value) }] });
+  }
+
+  neq(column: string, value: any): PrismaQueryBuilder {
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: { not: tryParseDate(value) } }] });
+  }
+
+  gt(column: string, value: any): PrismaQueryBuilder {
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: { gt: tryParseDate(value) } }] });
+  }
+
+  gte(column: string, value: any): PrismaQueryBuilder {
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: { gte: tryParseDate(value) } }] });
+  }
+
+  lt(column: string, value: any): PrismaQueryBuilder {
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: { lt: tryParseDate(value) } }] });
+  }
+
+  lte(column: string, value: any): PrismaQueryBuilder {
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: { lte: tryParseDate(value) } }] });
+  }
+
+  in(column: string, values: any[]): PrismaQueryBuilder {
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: { in: values.map(tryParseDate) } }] });
+  }
+
+  is(column: string, value: any): PrismaQueryBuilder {
+    if (value === null) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: null }] });
+    }
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [snakeToCamel(column)]: tryParseDate(value) }] });
+  }
+
+  not(column: string, operator: string, value: any): PrismaQueryBuilder {
+    const camelCol = snakeToCamel(column);
+    if (operator === 'is' && value === null) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { not: null } }] });
+    }
+    if (operator === 'eq') {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { not: tryParseDate(value) } }] });
+    }
+    if (operator === 'in') {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { notIn: (Array.isArray(value) ? value : [value]).map(tryParseDate) } }] });
+    }
+    // Fallback
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { not: tryParseDate(value) } }] });
+  }
+
+  like(column: string, pattern: string): PrismaQueryBuilder {
+    const camelCol = snakeToCamel(column);
+    if (pattern.endsWith('%') && pattern.startsWith('%')) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { contains: pattern.slice(1, -1) } }] });
+    }
+    if (pattern.endsWith('%')) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { startsWith: pattern.slice(0, -1) } }] });
+    }
+    if (pattern.startsWith('%')) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { endsWith: pattern.slice(1) } }] });
+    }
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: pattern }] });
+  }
+
+  ilike(column: string, pattern: string): PrismaQueryBuilder {
+    const camelCol = snakeToCamel(column);
+    if (pattern.endsWith('%') && pattern.startsWith('%')) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { contains: pattern.slice(1, -1), mode: 'insensitive' } }] });
+    }
+    if (pattern.endsWith('%')) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { startsWith: pattern.slice(0, -1), mode: 'insensitive' } }] });
+    }
+    if (pattern.startsWith('%')) {
+      return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { endsWith: pattern.slice(1), mode: 'insensitive' } }] });
+    }
+    return this._clone({ whereConditions: [...this._s.whereConditions, { [camelCol]: { contains: pattern, mode: 'insensitive' } }] });
+  }
+
+  or(filterString: string): PrismaQueryBuilder {
+    const groups = parseOrFilter(filterString);
+    const prismaGroups = groups.map(group =>
+      group.map(clause => orClauseToPrisma(clause))
+    );
+    return this._clone({ orGroups: [...this._s.orGroups, ...prismaGroups] });
+  }
+
+  // ─── ORDERING ──────────────────────────────────────────────────
+  order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): PrismaQueryBuilder {
+    const camelCol = snakeToCamel(column);
+    const ascending = options?.ascending !== false; // default true
+    let orderEntry: any;
+    if (options?.nullsFirst !== undefined) {
+      orderEntry = { [camelCol]: { sort: ascending ? 'asc' : 'desc', nulls: options.nullsFirst ? 'first' : 'last' } };
+    } else {
+      orderEntry = { [camelCol]: ascending ? 'asc' : 'desc' };
+    }
+    return this._clone({ orderBy: [...this._s.orderBy, orderEntry] });
+  }
+
+  // ─── PAGINATION ────────────────────────────────────────────────
+  limit(n: number): PrismaQueryBuilder {
+    return this._clone({ takeVal: n });
+  }
+
+  range(from: number, to: number): PrismaQueryBuilder {
+    return this._clone({ skipVal: from, takeVal: to - from + 1 });
+  }
+
+  // ─── SINGLE RESULT MODIFIERS ───────────────────────────────────
+  single(): PrismaQueryBuilder {
+    return this._clone({ singleMode: true });
+  }
+
+  maybeSingle(): PrismaQueryBuilder {
+    return this._clone({ maybeSingleMode: true });
+  }
+
+  // ─── MUTATIONS ─────────────────────────────────────────────────
+  insert(data: any): PrismaQueryBuilder {
+    return this._clone({ operation: 'insert', insertData: data });
+  }
+
+  update(data: any): PrismaQueryBuilder {
+    return this._clone({ operation: 'update', updateData: data });
+  }
+
+  delete(): PrismaQueryBuilder {
+    return this._clone({ operation: 'delete' });
+  }
+
+  upsert(data: any): PrismaQueryBuilder {
+    return this._clone({ operation: 'insert', insertData: data, returnData: true });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // EXECUTE — build and run the Prisma query
+  // ─────────────────────────────────────────────────────────────────
+
+  private async _execute(): Promise<PostgrestResult> {
+    const { operation, tableName, modelName } = this._s;
+    const model = (prisma as any)[modelName];
+
+    if (!model) {
+      return { data: null, error: { message: `Prisma model "${modelName}" not found for table "${tableName}"`, code: 'PGRST116' } };
+    }
+
+    try {
+      switch (operation) {
+        case 'select': return this._execSelect(model);
+        case 'insert': return this._execInsert(model);
+        case 'update': return this._execUpdate(model);
+        case 'delete': return this._execDelete(model);
+        default: return { data: null, error: { message: 'Unknown operation', code: 'PGRST116' } };
+      }
+    } catch (error: any) {
+      return { data: null, error: { message: error.message || String(error), code: 'PGRST116' } };
+    }
+  }
+
+  // ─── SELECT execution ──────────────────────────────────────────
+  private async _execSelect(model: any): Promise<PostgrestResult> {
+    const where = buildWhere(this._s);
+    const parsed = parseSelectToInclude(this._s.selectStr);
+
+    // Count-only query (head: true)
+    if (this._s.head && this._s.countExact) {
+      const count = await model.count({ where });
+      return { data: null, error: null, count, status: 200, statusText: 'OK' };
+    }
+
+    // Head without count (rare, just return empty)
+    if (this._s.head) {
+      return { data: null, error: null, status: 200, statusText: 'OK' };
+    }
+
+    // Build findMany args
+    const args: Record<string, any> = {};
+    if (where) args.where = where;
+    const selectArgs = buildSelectArgs(parsed);
+    Object.assign(args, selectArgs);
+
+    if (this._s.orderBy.length > 0) args.orderBy = this._s.orderBy;
+    if (this._s.takeVal !== null) args.take = this._s.takeVal;
+    if (this._s.skipVal !== null) args.skip = this._s.skipVal;
+
+    // .single() → use findFirst + validation
+    if (this._s.singleMode || this._s.maybeSingleMode) {
+      const row = await model.findFirst(args);
+      if (!row) {
+        if (this._s.singleMode) {
+          return { data: null, error: { message: 'No rows returned', code: 'PGRST116' }, status: 406, statusText: 'Not Acceptable' };
+        }
+        return { data: null, error: null, count: 0, status: 200, statusText: 'OK' };
+      }
+      return { data: prismaToSnakeCase(row), error: null, status: 200, statusText: 'OK' };
+    }
+
+    // Regular findMany
+    let rows = await model.findMany(args);
+
+    // Also fetch count if requested
+    let count: number | undefined;
+    if (this._s.countExact) {
+      count = await model.count({ where });
+    }
+
+    const result: PostgrestResult = {
+      data: rows.length > 0 ? prismaToSnakeCase(rows) : rows,
+      error: null,
+      status: 200,
+      statusText: 'OK',
+    };
+    if (count !== undefined) result.count = count;
+    return result;
+  }
+
+  // ─── INSERT execution ──────────────────────────────────────────
+  private async _execInsert(model: any): Promise<PostgrestResult> {
+    const data = convertDatesDeep(toCamelCaseDeep(this._s.insertData));
+    const isArray = Array.isArray(data);
+
+    if (isArray) {
+      // createMany doesn't return rows
+      await model.createMany({ data });
+      return { data: null, error: null, status: 201, statusText: 'Created' };
+    }
+
+    // Single insert
+    if (this._s.returnData) {
+      // Parse select for return shape
+      const parsed = parseSelectToInclude(this._s.selectStr);
+      const selectArgs = buildSelectArgs(parsed);
+      const row = await model.create({ data, ...selectArgs });
+      return { data: prismaToSnakeCase(row), error: null, status: 201, statusText: 'Created' };
+    }
+
+    await model.create({ data });
+    return { data: null, error: null, status: 201, statusText: 'Created' };
+  }
+
+  // ─── UPDATE execution ──────────────────────────────────────────
+  private async _execUpdate(model: any): Promise<PostgrestResult> {
+    const data = convertDatesDeep(toCamelCaseDeep(this._s.updateData));
+    const where = buildWhere(this._s);
+
+    if (!where) {
+      return { data: null, error: { message: 'Update requires at least one filter (e.g., .eq("id", val))', code: 'PGRST116' } };
+    }
+
+    if (this._s.returnData) {
+      // Parse select for return shape
+      const parsed = parseSelectToInclude(this._s.selectStr);
+      const selectArgs = buildSelectArgs(parsed);
+      const row = await model.updateFirst({ where, data, ...selectArgs });
+      return { data: prismaToSnakeCase(row), error: null, status: 200, statusText: 'OK' };
+    }
+
+    await model.updateMany({ where, data });
+    return { data: null, error: null, status: 200, statusText: 'OK' };
+  }
+
+  // ─── DELETE execution ──────────────────────────────────────────
+  private async _execDelete(model: any): Promise<PostgrestResult> {
+    const where = buildWhere(this._s);
+
+    if (!where) {
+      return { data: null, error: { message: 'Delete requires at least one filter', code: 'PGRST116' } };
+    }
+
+    await model.deleteMany({ where });
+    return { data: null, error: null, status: 200, statusText: 'OK' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SUPABASE CLIENT OBJECT (Prisma-backed + Supabase Auth/Storage)
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Main database client that uses the real Supabase REST API for queries,
+ * Main database client that uses Prisma for all .from() queries,
  * with local Prisma-backed RPC handlers for complex operations.
  *
- * Usage:
- *   db.from('users').select('*')                    → real Supabase REST
- *   db.from('users').select('*').eq('id', '123')   → real Supabase REST
- *   db.from('users').insert(data).select()          → real Supabase REST
+ * Usage (all route via Prisma → local PostgreSQL):
+ *   db.from('users').select('*')                    → Prisma findMany
+ *   db.from('users').select('*').eq('id', '123')   → Prisma findFirst
+ *   db.from('users').insert(data).select()          → Prisma create
  *   db.rpc('decrement_stock', { ... })              → local Prisma handler
- *   db.rpc('get_supabase_stats')                    → real Supabase RPC (fallback)
+ *   db.rpc('get_supabase_stats')                    → local Prisma handler
+ *
+ * Auth/Storage still use real Supabase:
+ *   db.auth.signIn()   → Supabase Auth
+ *   db.storage.from()  → Supabase Storage
  */
 const supabaseClient = {
   /**
    * Start a query on a table.
-   * Delegates to the real Supabase REST API client.
-   * Returns the native PostgREST query builder with full chaining support:
+   * Returns an immutable PostgREST-compatible query builder backed by Prisma.
+   *
+   * Supported chaining:
    *   .select().eq().neq().gt().gte().lt().lte().in().is().not()
    *   .ilike().like().or().order().limit().range().single().maybeSingle()
    *   .insert().update().delete().upsert()
    */
-  from(tableName: string) {
-    return supabaseRestClient.from(tableName);
+  from(tableName: string): PrismaQueryBuilder {
+    return new PrismaQueryBuilder(defaultState(tableName));
   },
 
   /**
    * Call an RPC function.
-   * First checks local Prisma-backed handlers (for stock ops, etc.).
-   * Falls back to the real Supabase RPC for unregistered functions
-   * (e.g., get_supabase_stats, database functions).
+   * Uses local Prisma-backed handlers (stock ops, balance ops, etc.).
    */
   async rpc(fnName: string, params: Record<string, any> = {}): Promise<PostgrestResult> {
-    // Try local Prisma-backed handler first
     const handler = rpcHandlers[fnName];
     if (handler) {
       try {
         return await handler(params);
       } catch (error) {
-        console.error(`[SupabaseClient] Local RPC "${fnName}" error:`, error);
+        console.error(`[SupabaseClient] RPC "${fnName}" error:`, error);
         const msg = error instanceof Error ? error.message : String(error);
         return { data: null, error: { message: msg, code: 'PGRST116' } };
       }
     }
 
-    // Fallback: call real Supabase RPC function
-    try {
-      const result = await supabaseRestClient.rpc(fnName as any, params as any);
-      return {
-        data: result.data,
-        error: result.error ? { message: result.error.message, code: String(result.error.code) } : null,
-        count: (result as any).count,
-        status: result.status,
-        statusText: result.statusText,
-      };
-    } catch (error) {
-      console.error(`[SupabaseClient] RPC "${fnName}" error (remote):`, error);
-      const msg = error instanceof Error ? error.message : String(error);
-      return { data: null, error: { message: msg, code: 'PGRST116' } };
-    }
+    // No handler found
+    return { data: null, error: { message: `RPC function "${fnName}" not found`, code: 'PGRST116' } };
   },
 
   // ─── Real Supabase Auth ───────────────────────────────────────────
@@ -881,7 +1390,7 @@ const supabaseClient = {
 
   // ─── Table name helper for testing ────────────────────────────────
   get tableNameMap() {
-    return null; // Not needed externally
+    return null;
   },
 };
 

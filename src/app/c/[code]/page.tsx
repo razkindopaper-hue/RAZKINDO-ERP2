@@ -82,6 +82,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import dynamic from 'next/dynamic';
+const CustomerChatBubble = dynamic(() => import('@/components/erp/CustomerChatBubble'), { ssr: false });
 
 // ── Formatting Helpers ──
 const formatCurrency = (n: number) =>
@@ -2231,6 +2233,9 @@ export default function CustomerPWAPage({
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      {/* Customer Live Chat Bubble */}
+      <CustomerChatBubble />
 
       {/* Floating Cart Button */}
       {cart.length > 0 && (
