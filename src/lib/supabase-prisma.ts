@@ -94,8 +94,55 @@ export function prismaToSnakeCase(data: any): any {
 /**
  * Convert a database table name (snake_case) to the Prisma model name (PascalCase).
  * e.g., 'cash_boxes' → 'CashBox', 'transaction_items' → 'TransactionItem'
+ *
+ * Handles irregular plurals that Prisma singularizes:
+ *   'users' → 'User', 'settings' → 'Setting', 'events' → 'Event', etc.
  */
+const TABLE_TO_MODEL_OVERRIDES: Record<string, string> = {
+  users: 'User',
+  user_units: 'UserUnit',
+  customers: 'Customer',
+  suppliers: 'Supplier',
+  products: 'Product',
+  units: 'Unit',
+  transactions: 'Transaction',
+  transaction_items: 'TransactionItem',
+  payments: 'Payment',
+  salary_payments: 'SalaryPayment',
+  bank_accounts: 'BankAccount',
+  cash_boxes: 'CashBox',
+  finance_requests: 'FinanceRequest',
+  fund_transfers: 'FundTransfer',
+  company_debts: 'CompanyDebt',
+  company_debt_payments: 'CompanyDebtPayment',
+  receivables: 'Receivable',
+  receivable_follow_ups: 'ReceivableFollowUp',
+  logs: 'Log',
+  sales_targets: 'SalesTarget',
+  sales_tasks: 'SalesTask',
+  sales_task_reports: 'SalesTaskReport',
+  courier_cash: 'CourierCash',
+  courier_handovers: 'CourierHandover',
+  events: 'Event',
+  push_subscriptions: 'PushSubscription',
+  settings: 'Setting',
+  cashback_configs: 'CashbackConfig',
+  cashback_logs: 'CashbackLog',
+  cashback_withdrawals: 'CashbackWithdrawal',
+  customer_referrals: 'CustomerReferral',
+  chat_messages: 'ChatMessage',
+  chat_rooms: 'ChatRoom',
+  payment_proofs: 'PaymentProof',
+  customer_follow_ups: 'CustomerFollowUp',
+  custom_roles: 'CustomRole',
+};
+
 export function snakeToModelName(table: string): string {
+  // Use explicit override if available (handles irregular plurals)
+  if (TABLE_TO_MODEL_OVERRIDES[table]) {
+    return TABLE_TO_MODEL_OVERRIDES[table];
+  }
+  // Fallback: PascalCase conversion
   return table
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
