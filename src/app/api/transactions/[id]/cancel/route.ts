@@ -100,7 +100,7 @@ export async function POST(
         const stockQty = itemCamel.qtyInSubUnit ?? itemCamel.qty;
         
         if (txCamel.type === 'sale') {
-          const product = cancelProductLookup.get(itemCamel.productId);
+          const product: any = cancelProductLookup.get(itemCamel.productId);
           if (!product) continue;
           
           if (product.stock_type === 'per_unit') {
@@ -152,7 +152,7 @@ export async function POST(
             }
           }
         } else if (txCamel.type === 'purchase') {
-          const product = cancelProductLookup.get(itemCamel.productId);
+          const product: any = cancelProductLookup.get(itemCamel.productId);
           if (product) {
             if (product.stock_type === 'per_unit') {
               const { data: unitProduct } = await db

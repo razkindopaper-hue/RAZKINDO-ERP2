@@ -72,7 +72,7 @@ export async function POST(
 
     try {
       for (const item of txCamel.items || []) {
-        const product = productLookup.get(item.productId);
+        const product: any = productLookup.get(item.productId);
         if (!product) continue;
 
         // Skip stock deduction if trackStock is disabled

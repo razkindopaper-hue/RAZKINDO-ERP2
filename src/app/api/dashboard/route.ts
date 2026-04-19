@@ -372,7 +372,7 @@ export async function GET(request: NextRequest) {
     );
 
     const topSales = topSalesData.map(([id, s]) => {
-      const u = userMap.get(id);
+      const u: any = userMap.get(id);
       return {
         id,
         name: u?.name || 'Unknown',

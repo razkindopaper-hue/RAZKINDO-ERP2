@@ -658,7 +658,7 @@ export async function POST(request: NextRequest) {
 
             for (const item of items) {
               const qtyToDeduct = item.qtyInSubUnit ?? item.qty;
-              const product = stockProductMap.get(item.productId);
+              const product: any = stockProductMap.get(item.productId);
 
               if (!product) {
                 console.error('Produk tidak ditemukan: ' + item.productId);

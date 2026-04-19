@@ -168,7 +168,7 @@ async function analyzeDiscrepancies() {
   const paymentMismatches: any[] = [];
   const allSaleTxMap = new Map((allSaleTxs || []).map((t: any) => [t.id, t]));
   for (const [txId, sum] of Object.entries(txPaymentSumMap)) {
-    const tx = allSaleTxMap.get(txId);
+    const tx: any = allSaleTxMap.get(txId);
     if (!tx) continue;
     const paidAmount = Number(tx.paid_amount) || 0;
     if (Math.abs(paidAmount - sum) > 1) {
@@ -300,7 +300,7 @@ async function adjustDiscrepancies(userId: string) {
       const txMap = new Map((txs || []).map((t: any) => [t.id, t]));
 
       for (const r of activeReceivables) {
-        const tx = txMap.get(r.transaction_id);
+        const tx: any = txMap.get(r.transaction_id);
         if (!tx) continue;
         const txRemaining = Number(tx.remaining_amount) || 0;
         const recRemaining = Number(r.remaining_amount) || 0;
