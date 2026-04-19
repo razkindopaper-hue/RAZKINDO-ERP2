@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
                   return (products as any[]).filter(p => {
                     if (p.stock_type === 'per_unit') {
                       const unitStock = unitStockMap.get(p.id);
-                      return unitStock !== undefined && unitStock <= (p.min_stock || 0);
+                      return unitStock != null && unitStock <= (p.min_stock || 0);
                     }
                     return p.global_stock <= (p.min_stock || 0);
                   });

@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     // Delete database records
     const { error: deleteError } = await db
       .from('payment_proofs')
-      .delete({ count: 'exact' })
+      .delete()
       .in('id', proofIds);
 
     const deletedRecords = oldProofs.length;

@@ -23,14 +23,14 @@ async function cleanupOldEvents() {
     // Delete read events older than 7 days
     const { count: deletedRead } = await db
       .from('events')
-      .delete({ count: 'exact' })
+      .delete()
       .eq('is_read', true)
       .lt('created_at', readCutoff);
 
     // Delete ALL events older than 30 days
     const { count: deletedOld } = await db
       .from('events')
-      .delete({ count: 'exact' })
+      .delete()
       .lt('created_at', hardCutoff);
 
     const total = (deletedRead || 0) + (deletedOld || 0);

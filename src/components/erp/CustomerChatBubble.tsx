@@ -69,7 +69,7 @@ export default function CustomerChatBubble() {
   const fetchMessages = useCallback(async () => {
     if (!isOpen || !roomId) return;
     try {
-      const data = await apiFetch(`/api/chat/rooms/${roomId}/messages`);
+      const data: any = await apiFetch(`/api/chat/rooms/${roomId}/messages`);
       setMessages(data.messages || []);
     } catch {}
   }, [isOpen, roomId]);
@@ -145,7 +145,7 @@ export default function CustomerChatBubble() {
       });
       setInput('');
       // Refetch messages
-      const data = await apiFetch(`/api/chat/rooms/${currentRoomId}/messages`);
+      const data: any = await apiFetch(`/api/chat/rooms/${currentRoomId}/messages`);
       setMessages(data.messages || []);
     } catch {
       // silent

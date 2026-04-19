@@ -276,7 +276,7 @@ async function cleanupOldProofs(): Promise<{ deletedRecords: number; deletedFile
     // Delete database records
     const { error: deleteError } = await db
       .from('payment_proofs')
-      .delete({ count: 'exact' })
+      .delete()
       .in('id', proofIds);
 
     const deletedRecords = oldProofs.length;

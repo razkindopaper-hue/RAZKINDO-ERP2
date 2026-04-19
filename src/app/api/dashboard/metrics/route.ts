@@ -214,7 +214,7 @@ export async function GET(request: NextRequest) {
 
       topRepeatCustomers = topRepeatEntries.map(([id, data]) => ({
         customerId: id,
-        name: nameMap.get(id) || 'Unknown',
+        name: String(nameMap.get(id) || 'Unknown'),
         transactionCount: data.count,
         totalSpent: data.totalSpent,
       }));
