@@ -36,7 +36,6 @@ const CustomerManagementModule = dynamic(() => import('@/components/erp/Customer
 const SalesTaskManagement = dynamic(() => import('@/components/erp/SalesTaskManagement'), { ssr: false });
 const SalesTaskDashboard = dynamic(() => import('@/components/erp/SalesTaskDashboard'), { ssr: false });
 const SalesTaskPopup = dynamic(() => import('@/components/erp/SalesTaskPopup'), { ssr: false });
-const AIChatPanel = dynamic(() => import('@/components/erp/AIChatPanel'), { ssr: false });
 const CashbackManagementModule = dynamic(() => import('@/components/erp/CashbackManagementModule'), { ssr: false });
 const PWAOrdersModule = dynamic(() => import('@/components/erp/PWAOrdersModule'), { ssr: false });
 const ChangePasswordDialog = dynamic(() => import('@/components/erp/ChangePasswordDialog').then(m => ({ default: m.ChangePasswordDialog })), { ssr: false });
@@ -324,7 +323,7 @@ function MainApp() {
 
       {sidebarOpen && <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
       <MobileBottomNav activeModule={activeModule} onNavigate={(id) => { setActiveModule(id); setSidebarOpen(false); }} onOpenMore={() => setSidebarOpen(true)} />
-      <Suspense fallback={null}><SalesTaskPopup onNavigate={(id) => handleNav(id)} />{activeModule === 'dashboard' && <AIChatPanel />}<ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} /><PWAInstallPrompt /></Suspense>
+      <Suspense fallback={null}><SalesTaskPopup onNavigate={(id) => handleNav(id)} /><ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} /><PWAInstallPrompt /></Suspense>
     </div>
   );
 }
