@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
     const txMap = new Map(allSaleTxs.map((t: any) => [t.id, t]));
 
     for (const r of receivables) {
-      const tx = txMap.get(r.transaction_id);
+      const tx: any = txMap.get(r.transaction_id);
       if (!tx) continue;
 
       const txRemaining = Number(tx.remaining_amount) || 0;
